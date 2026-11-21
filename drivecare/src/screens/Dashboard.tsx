@@ -1,13 +1,13 @@
-import { useMemo } from 'react';
-import { Badge, BasisBadge, Banner, Button, Card, IconButton, List, Page, Row, Section, Stat } from '../components/ui';
-import { IconGear, IconMap } from '../components/Icons';
+import { useMemo, type ReactNode } from 'react';
+import { Badge, Banner, Button, Card, Hero, IconButton, List, Page, Row, Section, Stat } from '../components/ui';
+import { IconCalendar, IconFuel, IconGear, IconMap, IconRoute, IconTreatment } from '../components/Icons';
 import { useData } from '../lib/data';
 import { useNav } from '../lib/nav';
 import { computeFuelStats } from '../lib/fuel';
 import { buildTreatmentReport, clinicInfo, isActiveAppt } from '../lib/report';
 import { categoryById } from '../lib/settings';
 import { effectiveClientId } from '../lib/settings';
-import { dateKey, fmtDateShort, fmtKey, fmtTime, monthEndKey, monthKey, monthStartKey, thisMonthKey } from '../lib/time';
+import { dateKey, fmtDateShort, fmtKey, fmtMonth, fmtTime, monthEndKey, monthKey, monthStartKey, thisMonthKey } from '../lib/time';
 import { fmtCAD, fmtKm, fmtLitres, fmtPerKm } from '../lib/format';
 import { effectiveKm, SOURCE_SHORT } from '../lib/trips';
 import { formatAddress, googleMapsUrl } from '../lib/address';
@@ -68,29 +68,58 @@ export default function Dashboard() {
       }
     >
       {error && <Banner tone="error" title="Storage problem">{error}</Banner>}
-      {loaded && setupSteps.some((s) => !s.done) && (
-        <Section title="Get started">
-          <List>
-            {setupSteps.map((s) => (
-              <Row key={s.label} title={<span className={s.done ? 'text-muted line-through' : ''}>{s.label}</span>} left={s.done ? <Badge tone="green">Done</Badge> : <Badge tone="blue">To do</Badge>} onClick={s.done ? undefined : s.go} />
-            ))}
-          </List>
-        </Section>
-      )}
-      {backupDue && (
-        <Banner tone="warn" title="Back up your data">
-          Records are stored only on this iPhone. Deleting Safari data or removing the app erases them.
-          <div className="mt-2">
-            <Button small onClick={nav.openSettings}>
-              Back up now
-            </Button>
+      <Hero>
+        <div className="flex items-center justify-between">
+          <span className="text-[13px] font-semibold tracking-wide uppercase opacity-85">{fmtMonth(month)}</span>
+          <span className="rounded-full bg-white/20 px-2.5 py-1 text-[11px] font-semibold backdrop-blur">
+            {fuelStats.costPerKm.value != null ? `${fmtPerKm(fuelStats.costPerKm.value)} · ${fuelStats.costPerKm.basis === 'verified' ? 'verified' : 'estimate'}` : 'Cost/km unavailable'}
+          </span>
+        </div>
+        <button type="button" className="mt-3 block text-left" onClick={() => nav.setTab('trips')}>
+          <div className="text-[44px] leading-none font-extrabold tracking-tight tabular">
+            {monthKm.toFixed(1)}
+            <span className="ml-1.5 text-[20px] font-semibold opacity-80">km</span>
           </div>
-        </Banner>
-      )}
+          <div className="mt-1 text-[13px] opacity-85">
+            driven this month · {monthTrips.length} trip{monthTrips.length === 1 ? '' : 's'}
+            {tripsMissingKm ? ` · ${tripsMissingKm} without distance` : ''}
+          </div>
+        </button>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => nav.setTab('fuel')} className="rounded-2xl bg-white/15 px-3 py-2.5 text-left backdrop-blur active:bg-white/25">
+            <div className="text-[12px] opacity-85">Fuel spending</div>
+            <div className="text-[20px] font-bold tabular">{fmtCAD(monthFuel?.spent ?? 0)}</div>
+          </button>
+          <button type="button" onClick={() => nav.setTab('fuel')} className="rounded-2xl bg-white/15 px-3 py-2.5 text-left backdrop-blur active:bg-white/25">
+            <div className="text-[12px] opacity-85">Litres</div>
+            <div className="text-[20px] font-bold tabular">{fmtLitres(monthFuel?.litres ?? 0)}</div>
+          </button>
+        </div>
+      </Hero>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Stat
+          icon={<IconTreatment size={16} />}
+          tone="teal"
+          label="Treatment km"
+          value={fmtKm(treat.totals.totalKm)}
+          sub={`${treat.totals.trips} linked trip${treat.totals.trips === 1 ? '' : 's'}`}
+          onClick={() => nav.setTab('reports')}
+        />
+        <Stat
+          icon={<IconCalendar size={16} />}
+          tone="purple"
+          label="Appointments"
+          value={String(treat.totals.appointments)}
+          sub={treat.totals.estCost != null ? `Est. fuel ${fmtCAD(treat.totals.estCost)}` : 'Fuel cost unavailable'}
+          onClick={() => nav.setTab('treatments')}
+        />
+      </div>
 
       {upcoming && upInfo && (
         <Section title="Next appointment">
-          <Card className="p-4">
+          <Card className="relative overflow-hidden p-4">
+            <div className="absolute inset-y-0 left-0 w-1.5" style={{ background: categoryById(settings, upcoming.categoryId)?.color ?? '#0a84ff' }} />
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <Badge color={categoryById(settings, upcoming.categoryId)?.color}>{categoryById(settings, upcoming.categoryId)?.label ?? 'Treatment'}</Badge>
@@ -116,26 +145,25 @@ export default function Dashboard() {
         </Section>
       )}
 
-      <Section title="This month">
-        <div className="grid grid-cols-2 gap-3">
-          <Stat label="Kilometres driven" value={fmtKm(monthKm)} sub={`${monthTrips.length} trips${tripsMissingKm ? ` · ${tripsMissingKm} without distance` : ''}`} onClick={() => nav.setTab('trips')} />
-          <Stat label="Fuel spending" value={fmtCAD(monthFuel?.spent ?? 0)} sub={`${monthFuel?.count ?? 0} purchases · ${fmtLitres(monthFuel?.litres ?? 0)}`} onClick={() => nav.setTab('fuel')} />
-          <Stat label="Treatment km" value={fmtKm(treat.totals.totalKm)} sub={`${treat.totals.trips} linked trips`} onClick={() => nav.setTab('reports')} />
-          <Stat
-            label="Appointments"
-            value={String(treat.totals.appointments)}
-            sub={treat.totals.estCost != null ? `Est. fuel ${fmtCAD(treat.totals.estCost)}` : 'Fuel cost unavailable'}
-            onClick={() => nav.setTab('treatments')}
-          />
-        </div>
-        <Card className="mt-3 flex items-center justify-between px-4 py-3">
-          <div>
-            <div className="text-[13px] text-muted">Average fuel cost per km</div>
-            <div className="text-[19px] font-bold tabular">{fmtPerKm(fuelStats.costPerKm.value)}</div>
+      {loaded && setupSteps.some((s) => !s.done) && (
+        <Section title="Get started">
+          <List>
+            {setupSteps.map((s) => (
+              <Row key={s.label} title={<span className={s.done ? 'text-muted line-through' : ''}>{s.label}</span>} left={s.done ? <Badge tone="green">Done</Badge> : <Badge tone="blue">To do</Badge>} onClick={s.done ? undefined : s.go} />
+            ))}
+          </List>
+        </Section>
+      )}
+      {backupDue && (
+        <Banner tone="warn" title="Back up your data">
+          Records are stored only on this iPhone. Deleting Safari data or removing the app erases them.
+          <div className="mt-2">
+            <Button small onClick={nav.openSettings}>
+              Back up now
+            </Button>
           </div>
-          <BasisBadge basis={fuelStats.costPerKm.basis} />
-        </Card>
-      </Section>
+        </Banner>
+      )}
 
       <Section title="Recent trips" action={<Button small variant="plain" onClick={() => nav.setTab('trips')}>See all</Button>}>
         {recentTrips.length ? (
@@ -146,6 +174,7 @@ export default function Dashboard() {
                 title={`${t.start.label || 'Start'} → ${t.end.label || 'Destination'}`}
                 subtitle={`${fmtDateShort(t.startTime)} · ${fmtTime(t.startTime)}${t.distanceSource ? ` · ${SOURCE_SHORT[t.distanceSource]}` : ''}`}
                 detail={fmtKm(effectiveKm(t))}
+                left={<RowIcon color="#0a84ff"><IconRoute size={16} /></RowIcon>}
               />
             ))}
           </List>
@@ -158,7 +187,7 @@ export default function Dashboard() {
         {recentFuel.length ? (
           <List>
             {recentFuel.map((e) => (
-              <Row key={e.id} title={e.station || 'Fuel purchase'} subtitle={`${fmtDateShort(e.datetime)} · ${fmtLitres(e.litres)}${e.fullTank ? ' · full' : ' · partial'}`} detail={fmtCAD(e.total)} />
+              <Row key={e.id} title={e.station || 'Fuel purchase'} subtitle={`${fmtDateShort(e.datetime)} · ${fmtLitres(e.litres)}${e.fullTank ? ' · full' : ' · partial'}`} detail={fmtCAD(e.total)} left={<RowIcon color="#ff9f0a"><IconFuel size={16} /></RowIcon>} />
             ))}
           </List>
         ) : (
@@ -166,5 +195,13 @@ export default function Dashboard() {
         )}
       </Section>
     </Page>
+  );
+}
+
+function RowIcon({ children, color }: { children: ReactNode; color: string }) {
+  return (
+    <span className="flex h-8 w-8 items-center justify-center rounded-[10px] text-white" style={{ background: color }}>
+      {children}
+    </span>
   );
 }

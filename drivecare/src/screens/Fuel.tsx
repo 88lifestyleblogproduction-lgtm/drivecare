@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Badge, BasisBadge, Button, Card, Empty, Field, IconButton, List, NumberInput, Page, Row, Section, Segmented, Sheet, Spinner, Stat, TextArea, TextInput, Toggle, Banner, useToast } from '../components/ui';
+import { type Tone, Badge, BasisBadge, Button, Card, Empty, Field, IconButton, List, NumberInput, Page, Row, Section, Segmented, Sheet, Spinner, Stat, TextArea, TextInput, Toggle, Banner, useToast } from '../components/ui';
 import { IconCamera, IconPlus } from '../components/Icons';
 import { BarChart, LineChart } from '../components/Charts';
 import { useData } from '../lib/data';
@@ -83,8 +83,8 @@ function FuelLog({ stats, onEdit, onAdd }: { stats: FuelStats; onEdit: (e: FuelE
   );
 }
 
-function MetricCard({ label, m, fmt }: { label: string; m: Metric; fmt: (n: number) => string }) {
-  return <Stat label={label} value={m.value == null ? <span className="text-[17px] text-muted">Unavailable</span> : fmt(m.value)} badge={<BasisBadge basis={m.basis} />} sub={m.detail} />;
+function MetricCard({ label, m, fmt, tone }: { label: string; m: Metric; fmt: (n: number) => string; tone?: Tone }) {
+  return <Stat tone={tone} label={label} value={m.value == null ? <span className="text-[17px] text-muted">Unavailable</span> : fmt(m.value)} badge={<BasisBadge basis={m.basis} />} sub={m.detail} />;
 }
 
 function FuelStatsView({ stats }: { stats: FuelStats }) {
@@ -101,12 +101,12 @@ function FuelStatsView({ stats }: { stats: FuelStats }) {
     <>
       <div className="grid grid-cols-2 gap-3">
         <Stat label="This month" value={fmtCAD(thisMonth?.spent ?? 0)} sub={`${thisMonth?.count ?? 0} purchases · ${fmtLitres(thisMonth?.litres ?? 0)}`} badge={<BasisBadge basis="verified" />} />
-        <MetricCard label="Avg price" m={stats.avgPricePerLitre} fmt={fmtPerL} />
-        <MetricCard label="Fuel economy" m={stats.avgConsumption} fmt={fmtL100} />
-        <MetricCard label="Cost per km" m={stats.costPerKm} fmt={fmtPerKm} />
-        <MetricCard label="Days per refuel" m={stats.avgDaysBetween} fmt={(n) => `${fmtNum1(n)} days`} />
-        <MetricCard label="Daily fuel cost" m={stats.avgDailyExpense} fmt={fmtCAD} />
-        <MetricCard label="Monthly driving" m={stats.avgMonthlyKm} fmt={fmtKm} />
+        <MetricCard tone="orange" label="Avg price" m={stats.avgPricePerLitre} fmt={fmtPerL} />
+        <MetricCard tone="green" label="Fuel economy" m={stats.avgConsumption} fmt={fmtL100} />
+        <MetricCard tone="blue" label="Cost per km" m={stats.costPerKm} fmt={fmtPerKm} />
+        <MetricCard tone="purple" label="Days per refuel" m={stats.avgDaysBetween} fmt={(n) => `${fmtNum1(n)} days`} />
+        <MetricCard tone="pink" label="Daily fuel cost" m={stats.avgDailyExpense} fmt={fmtCAD} />
+        <MetricCard tone="teal" label="Monthly driving" m={stats.avgMonthlyKm} fmt={fmtKm} />
         <Stat label="All-time" value={fmtCAD(stats.totalSpent)} sub={`${fmtLitres(stats.totalLitres)} over ${stats.count} purchases`} badge={<BasisBadge basis="verified" />} />
       </div>
       <p className="px-1 text-[12px] leading-relaxed text-muted">

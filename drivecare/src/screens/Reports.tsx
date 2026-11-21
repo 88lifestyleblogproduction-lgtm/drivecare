@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Badge, BasisBadge, Banner, Button, Card, Field, List, Page, Row, Section, Segmented, Select, Spinner, Stat, useToast } from '../components/ui';
-import { IconShare } from '../components/Icons';
+import { IconCalendar, IconFuel, IconRoute, IconShare, IconTreatment } from '../components/Icons';
 import { BarChart } from '../components/Charts';
 import { useData } from '../lib/data';
 import { computeFuelStats } from '../lib/fuel';
@@ -120,10 +120,10 @@ function TreatmentReportView() {
       {filter.startKey > filter.endKey && <Banner tone="error">The start date is after the end date.</Banner>}
 
       <div className="grid grid-cols-2 gap-3">
-        <Stat label="Treatment km" value={fmtKm(t.totalKm)} sub={`Out ${fmtKm(t.outboundKm)} · Between ${fmtKm(t.betweenKm)} · Return ${fmtKm(t.returnKm)}`} />
-        <Stat label="Est. fuel cost" value={t.estCost != null ? fmtCAD(t.estCost) : <span className="text-[17px] text-muted">Unavailable</span>} badge={<BasisBadge basis={costPerKm.basis === 'unavailable' ? 'unavailable' : 'estimate'} />} sub={costPerKm.value != null ? `At ${fmtPerKm(costPerKm.value)}` : costPerKm.detail} />
-        <Stat label="Appointments" value={String(t.appointments)} sub={`${report.apptsWithoutTravel.length} without recorded travel`} />
-        <Stat label="Associated trips" value={String(t.trips)} sub={t.costPerTrip != null ? `≈ ${fmtCAD(t.costPerTrip)} per trip` : t.tripsMissingDistance ? `${t.tripsMissingDistance} without distance` : 'Cost per trip unavailable'} />
+        <Stat icon={<IconTreatment size={16} />} tone="teal" label="Treatment km" value={fmtKm(t.totalKm)} sub={`Out ${fmtKm(t.outboundKm)} · Between ${fmtKm(t.betweenKm)} · Return ${fmtKm(t.returnKm)}`} />
+        <Stat icon={<IconFuel size={16} />} tone="orange" label="Est. fuel cost" value={t.estCost != null ? fmtCAD(t.estCost) : <span className="text-[17px] text-muted">Unavailable</span>} badge={<BasisBadge basis={costPerKm.basis === 'unavailable' ? 'unavailable' : 'estimate'} />} sub={costPerKm.value != null ? `At ${fmtPerKm(costPerKm.value)}` : costPerKm.detail} />
+        <Stat icon={<IconCalendar size={16} />} tone="purple" label="Appointments" value={String(t.appointments)} sub={`${report.apptsWithoutTravel.length} without recorded travel`} />
+        <Stat icon={<IconRoute size={16} />} tone="blue" label="Associated trips" value={String(t.trips)} sub={t.costPerTrip != null ? `≈ ${fmtCAD(t.costPerTrip)} per trip` : t.tripsMissingDistance ? `${t.tripsMissingDistance} without distance` : 'Cost per trip unavailable'} />
       </div>
 
       <Section title="Treatment km by month">

@@ -178,9 +178,11 @@ function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
               type="button"
               onClick={() => onChange(t.id)}
               aria-current={active ? 'page' : undefined}
-              className={cx('flex flex-1 flex-col items-center gap-0.5 pt-2 pb-1.5 text-[10px] font-medium', active ? 'text-accent' : 'text-muted')}
+              className={cx('flex flex-1 flex-col items-center gap-0.5 pt-1.5 pb-1.5 text-[10px] font-semibold', active ? 'text-accent' : 'text-muted')}
             >
-              <Icon size={25} />
+              <span className={cx('flex h-8 w-14 items-center justify-center rounded-full transition-colors', active && 'bg-accent/12')}>
+                <Icon size={23} />
+              </span>
               {t.label}
             </button>
           );

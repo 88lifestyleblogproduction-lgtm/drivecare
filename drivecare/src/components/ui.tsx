@@ -10,10 +10,10 @@ export function cx(...xs: (string | false | null | undefined)[]) {
 
 export function Page({ title, subtitle, right, children }: { title: string; subtitle?: ReactNode; right?: ReactNode; children: ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 pb-28">
+    <div className="mx-auto w-full max-w-2xl px-4 pb-32">
       <header className="safe-top flex items-end justify-between gap-3 pt-4 pb-3">
         <div className="min-w-0">
-          <h1 className="text-[32px] leading-tight font-bold tracking-tight">{title}</h1>
+          <h1 className="text-[34px] leading-tight font-extrabold tracking-tight">{title}</h1>
           {subtitle && <div className="mt-0.5 text-sm text-muted">{subtitle}</div>}
         </div>
         {right && <div className="flex shrink-0 items-center gap-2 pb-1">{right}</div>}
@@ -39,7 +39,7 @@ export function Section({ title, action, children, footer }: { title?: ReactNode
 }
 
 export function Card({ children, className = '', onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
-  const cls = cx('rounded-2xl bg-card', onClick && 'cursor-pointer text-left w-full active:opacity-70 transition-opacity', className);
+  const cls = cx('rounded-[20px] bg-card surface', onClick && 'cursor-pointer text-left w-full active:opacity-70 transition-opacity', className);
   return onClick ? (
     <button type="button" className={cls} onClick={onClick}>
       {children}
@@ -51,7 +51,7 @@ export function Card({ children, className = '', onClick }: { children: ReactNod
 
 /** A grouped list (iOS inset-grouped table) */
 export function List({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={cx('overflow-hidden rounded-2xl bg-card divide-y divide-line', className)}>{children}</div>;
+  return <div className={cx('overflow-hidden rounded-[20px] bg-card surface divide-y divide-line', className)}>{children}</div>;
 }
 
 export function Row({
@@ -118,7 +118,7 @@ export function Button({
   full?: boolean;
 }) {
   const v: Record<BtnVariant, string> = {
-    primary: 'bg-accent text-white',
+    primary: 'bg-gradient-to-b from-[#2b95ff] to-[#0a74ec] text-white shadow-[0_6px_16px_-6px_rgba(10,132,255,0.7)]',
     secondary: 'bg-fill text-ink',
     tinted: 'bg-accent/15 text-accent',
     danger: 'bg-bad/12 text-bad',
@@ -255,15 +255,15 @@ export function Toggle({ checked, onChange, label, hint }: { checked: boolean; o
 
 export function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[] }) {
   return (
-    <div className="flex rounded-[10px] bg-fill p-[2px]">
+    <div className="flex rounded-[11px] bg-fill p-[3px]">
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
           className={cx(
-            'flex-1 rounded-[8px] px-2 py-1.5 text-[13px] font-semibold transition',
-            value === o.value ? 'bg-card text-ink shadow-sm dark:bg-elev' : 'text-muted'
+            'flex-1 rounded-[9px] px-2 py-2 text-[13px] font-semibold transition-all duration-200',
+            value === o.value ? 'bg-card text-ink shadow-[0_2px_8px_rgba(0,0,0,0.12)] dark:bg-elev' : 'text-muted'
           )}
         >
           {o.label}
@@ -298,16 +298,55 @@ export function BasisBadge({ basis }: { basis: Basis }) {
   return <Badge>Unavailable</Badge>;
 }
 
-export function Stat({ label, value, sub, badge, onClick }: { label: string; value: ReactNode; sub?: ReactNode; badge?: ReactNode; onClick?: () => void }) {
+export type Tone = 'blue' | 'green' | 'orange' | 'pink' | 'purple' | 'teal';
+const TONE_HEX: Record<Tone, string> = { blue: '#0a84ff', green: '#30d158', orange: '#ff9f0a', pink: '#ff375f', purple: '#bf5af2', teal: '#40c8e0' };
+
+export function Stat({
+  label,
+  value,
+  sub,
+  badge,
+  onClick,
+  icon,
+  tone = 'blue',
+}: {
+  label: string;
+  value: ReactNode;
+  sub?: ReactNode;
+  badge?: ReactNode;
+  onClick?: () => void;
+  icon?: ReactNode;
+  tone?: Tone;
+}) {
+  const c = TONE_HEX[tone];
   return (
-    <Card className="p-4" onClick={onClick}>
+    <Card className="relative overflow-hidden p-4" onClick={onClick}>
+      <div className="pointer-events-none absolute -top-10 -right-10 h-28 w-28 rounded-full opacity-[0.10] blur-2xl" style={{ background: c }} />
       <div className="flex items-start justify-between gap-2">
-        <div className="text-[13px] font-medium text-muted">{label}</div>
+        <div className="flex min-w-0 items-center gap-2">
+          {icon && (
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] text-white" style={{ background: c }}>
+              {icon}
+            </span>
+          )}
+          <div className="text-[13px] leading-tight font-semibold text-muted">{label}</div>
+        </div>
         {badge}
       </div>
-      <div className="mt-1 text-[24px] leading-tight font-bold tracking-tight tabular">{value}</div>
-      {sub && <div className="mt-0.5 text-[12px] leading-snug text-muted">{sub}</div>}
+      <div className="mt-2.5 text-[24px] leading-none font-bold tracking-tight tabular">{value}</div>
+      {sub && <div className="mt-1.5 text-[12px] leading-snug text-muted">{sub}</div>}
     </Card>
+  );
+}
+
+/** Large gradient summary card */
+export function Hero({ children, from = '#0a84ff', to = '#5e5ce6', className = '' }: { children: ReactNode; from?: string; to?: string; className?: string }) {
+  return (
+    <div className={cx('relative overflow-hidden rounded-[24px] p-5 text-white shadow-[0_10px_30px_-12px_rgba(10,132,255,0.55)]', className)} style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}>
+      <div className="pointer-events-none absolute -top-16 -right-12 h-48 w-48 rounded-full bg-white/15 blur-2xl" />
+      <div className="pointer-events-none absolute -bottom-20 -left-10 h-40 w-40 rounded-full bg-black/10 blur-2xl" />
+      <div className="relative">{children}</div>
+    </div>
   );
 }
 
