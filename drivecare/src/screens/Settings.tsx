@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import LocationEditor, { type LocationDraft } from '../components/LocationEditor';
+import { NumberInput } from '../components/ui';
 import { Badge, Banner, Button, Field, List, Row, Section, Select, Sheet, Spinner, TextInput, Toggle, useToast } from '../components/ui';
 import { useData } from '../lib/data';
 import { DEFAULT_CATEGORIES, effectiveClientId, saveSettings } from '../lib/settings';
@@ -15,6 +17,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
   return (
     <Sheet open={open} onClose={onClose} title="Settings" closeLabel="Done">
       <GoogleSection />
+      <AppSection />
       <WorkSection />
       <KeywordSection />
       <RoutingSection />
@@ -169,12 +172,82 @@ function GoogleSection() {
   );
 }
 
+function AppSection() {
+  const { settings } = useData();
+  const toast = useToast();
+  const [tab, setTab] = useState(settings.tabLabel);
+  const [title, setTitle] = useState(settings.reportTitle);
+  const [rate, setRate] = useState(settings.reimburseRate != null ? String(settings.reimburseRate) : '');
+  useEffect(() => {
+    setTab(settings.tabLabel);
+    setTitle(settings.reportTitle);
+    setRate(settings.reimburseRate != null ? String(settings.reimburseRate) : '');
+  }, [settings.tabLabel, settings.reportTitle, settings.reimburseRate]);
+
+  async function save() {
+    const r = rate.trim() ? Number(rate) : null;
+    if (r != null && (!Number.isFinite(r) || r < 0 || r > 5)) return toast('Enter a rate in dollars per km, e.g. 0.70', 'error');
+    await saveSettings({ tabLabel: tab.trim() || 'Treatments', reportTitle: title.trim() || 'Treatment Travel Report', reimburseRate: r });
+    toast('Saved');
+  }
+
+  function preset(kind: 'treatment' | 'business') {
+    if (kind === 'treatment') {
+      setTab('Treatments');
+      setTitle('Treatment Travel Report');
+    } else {
+      setTab('Visits');
+      setTitle('Business Mileage Report');
+    }
+  }
+
+  return (
+    <Section
+      title="App & reports"
+      footer="For work mileage (e.g. sales visits): use the Business preset, enter your employer's reimbursement rate, and turn on importing other events with a location. Ask your employer which rate applies; DriveCare does not decide eligibility."
+    >
+      <List>
+        <div className="flex gap-2 px-4 py-3">
+          <Button small variant="secondary" onClick={() => preset('treatment')}>
+            Treatment preset
+          </Button>
+          <Button small variant="secondary" onClick={() => preset('business')}>
+            Business preset
+          </Button>
+        </div>
+        <Field label="Name of the appointments tab">
+          <TextInput value={tab} onChange={setTab} placeholder="Treatments" />
+        </Field>
+        <Field label="Report title">
+          <TextInput value={title} onChange={setTitle} placeholder="Treatment Travel Report" />
+        </Field>
+        <Field label="Mileage reimbursement rate (optional)" hint="Dollars per km. Leave blank if not needed. Reports will show km × rate.">
+          <NumberInput value={rate} onChange={setRate} placeholder="e.g. 0.70" suffix="$/km" />
+        </Field>
+        <div className="px-4 pb-3">
+          <Button small onClick={() => void save()}>
+            Save
+          </Button>
+        </div>
+        <Toggle
+          checked={settings.importAllWithLocation}
+          onChange={(v) => void saveSettings({ importAllWithLocation: v })}
+          label="Also import other events that have a location"
+          hint="Off: only events matching the keywords below. On: client visits, meetings etc. with an address are imported as “Other appointment / visit”. Sync again after changing."
+        />
+      </List>
+    </Section>
+  );
+}
+
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function WorkSection() {
   const { settings, locations } = useData();
+  const [editWork, setEditWork] = useState(false);
   const work = settings.workLocationId ? locations.find((l) => l.id === settings.workLocationId) : locations.find((l) => l.kind === 'work');
   const home = settings.homeLocationId ? locations.find((l) => l.id === settings.homeLocationId) : locations.find((l) => l.kind === 'home');
+  const workDraft = useMemo<LocationDraft>(() => (work ? { id: work.id } : { kind: 'work', name: 'Work' }), [work]);
   const toggle = (d: number) =>
     void saveSettings({ workDays: settings.workDays.includes(d) ? settings.workDays.filter((x) => x !== d) : [...settings.workDays, d].sort() });
   const placeOpts = (cur: 'home' | 'work') => [
@@ -212,8 +285,14 @@ function WorkSection() {
         <Field label="On workdays, end at">
           <Select value={settings.workdayEnd} onChange={(v) => void saveSettings({ workdayEnd: v as 'home' | 'work' })} options={placeOpts(settings.workdayEnd)} />
         </Field>
-        {!work && <Row title={<span className="text-[14px] text-warn">No Work address saved yet — workdays will use Home until you add one.</span>} />}
+        <div className="px-4 py-3">
+          <Button small variant={work ? 'secondary' : 'primary'} onClick={() => setEditWork(true)}>
+            {work ? `Edit work address (${work.name || work.street})` : 'Add work address'}
+          </Button>
+          {!work && <div className="mt-1.5 text-[12px] text-warn">No work address yet — workdays use Home until you add one.</div>}
+        </div>
       </List>
+      <LocationEditor open={editWork} draft={workDraft} onClose={() => setEditWork(false)} />
     </Section>
   );
 }

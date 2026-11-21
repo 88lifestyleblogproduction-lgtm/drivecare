@@ -12,6 +12,11 @@ import { categoryById, categoryLabel } from '../lib/settings';
 import { clinicInfo, isActiveAppt } from '../lib/report';
 import { buildPoints, buildSegments, dayAppointments, defaultEnds, isWorkday, reconcilePlan, saveSegmentsAsTrips, type PlanPoint, type PlanSegment, type SegmentState } from '../lib/planner';
 import { pairsOf, useRouteResults } from '../lib/useRoutes';
+import { autoLocateAppointments } from '../lib/autoLocate';
+
+// Legs already tried automatically this session (avoids repeat requests after a failure)
+const autoTried = new Set<string>();
+const AUTO_LIMIT = 40;
 import { peekRoute, providerName, routeBetween } from '../lib/routing';
 import { computeFuelStats } from '../lib/fuel';
 import { hasCoords } from '../lib/geo';
@@ -24,11 +29,12 @@ import { errMsg, groupBy, nowIso, parseNum, uid } from '../lib/util';
 
 export default function TreatmentsScreen() {
   const nav = useNav();
+  const { settings } = useData();
   const { syncing, sync } = useCalendarSync();
   return (
     <Page
-      title="Treatments"
-      subtitle="Appointments, routes and clinics"
+      title={settings.tabLabel}
+      subtitle="Appointments, routes and places"
       right={
         <IconButton label="Sync Google Calendar" onClick={() => void sync()}>
           {syncing ? <Spinner /> : <IconRefresh />}
@@ -135,6 +141,31 @@ function Appointments() {
   }, [dayKeys, filter, appointments, routePlans, settings, locations, apptMap, locMap]);
   const allPairs = useMemo(() => [...dayData.values()].flatMap((d) => pairsOf(d.points.filter((p) => p.role === 'stop'))), [dayData]);
   const { results, calculate } = useRouteResults(allPairs, settings);
+
+  // 1) Find map positions for calendar addresses automatically.
+  const unlocatedSig = appointments
+    .filter((a) => isActiveAppt(a) && !a.locationId && a.locationRaw)
+    .map((a) => a.id)
+    .join(',');
+  useEffect(() => {
+    if (!unlocatedSig) return;
+    void autoLocateAppointments().then((n) => {
+      if (n) toast(`Located ${n} address${n > 1 ? 'es' : ''} from your calendar automatically`);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unlocatedSig]);
+
+  // 2) Calculate driving km between appointments automatically (rate-limited, cached).
+  const autoPending = allPairs.filter((p) => !results.has(p.key) && !autoTried.has(p.key));
+  const autoSig = autoPending.map((p) => p.key).join('|');
+  useEffect(() => {
+    const room = AUTO_LIMIT - autoTried.size;
+    if (!autoPending.length || room <= 0) return;
+    const batch = autoPending.slice(0, room);
+    batch.forEach((p) => autoTried.add(p.key));
+    void calculate(batch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSig]);
 
   async function saveLeg(plan: RoutePlan, key: string) {
     const v = parseNum(legText);
@@ -344,7 +375,14 @@ function ApptRow({ appt, loc, past, onClick }: { appt: Appointment; loc?: SavedL
         <span className="flex flex-wrap items-center gap-1.5">
           <Badge color={cat?.color}>{cat?.label ?? 'Treatment'}</Badge>
           <StatusBadge a={appt} />
-          {loc ? <span className="truncate">{locationTitle(loc)}</span> : <Badge tone="orange">{appt.locationRaw ? 'Confirm address' : 'No location'}</Badge>}
+          {loc ? (
+            <>
+              <span className="truncate">{locationTitle(loc)}</span>
+              {loc.autoLocated && <Badge tone="gray">Auto-located</Badge>}
+            </>
+          ) : (
+            <Badge tone="orange">{appt.locationRaw ? 'Address not found' : 'No location'}</Badge>
+          )}
         </span>
       }
     />
@@ -427,7 +465,16 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
       </List>
 
       <Section title="Address">
-        {loc ? (
+        {loc?.autoLocated ? (
+          <Banner tone="info" title="Located automatically from the calendar address">
+            Check that the pin is at the right building. The address text comes from your calendar; only the map position was looked up.
+            <div className="mt-2">
+              <Button small onClick={() => void put('locations', { ...loc, autoLocated: false, updatedAt: nowIso() }).then(() => toast('Location confirmed'))}>
+                Looks right
+              </Button>
+            </div>
+          </Banner>
+        ) : loc ? (
           <Banner tone="ok" title={`Confirmed: ${locationTitle(loc)}`}>
             {formatAddress(loc) || 'No street address'}
             {!hasCoords(loc) && <div className="text-warn">No map position — distances cannot be calculated yet.</div>}
@@ -646,6 +693,17 @@ function RoutePlanner() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairSig]);
+
+  // Calculate missing legs automatically when the day opens (once per leg per session).
+  const plannerPending = segments.filter((s) => s.kind === 'route' && s.pairKey && s.estKm == null && !s.loading && !s.error && !autoTried.has(s.pairKey));
+  const plannerSig = plannerPending.map((s) => s.pairKey).join('|');
+  useEffect(() => {
+    if (!plannerPending.length || autoTried.size >= AUTO_LIMIT) return;
+    plannerPending.forEach((s) => autoTried.add(s.pairKey!));
+    const t = setTimeout(() => void calculate(), 600); // let cached results load first
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannerSig]);
 
   async function savePlan(p: RoutePlan) {
     await put('routePlans', { ...p, updatedAt: nowIso() });
@@ -995,13 +1053,20 @@ function Clinics() {
 
   return (
     <>
-      {!settings.homeLocationId && !locations.some((l) => l.kind === 'home') && (
-        <Banner tone="info" title="Add your home">
-          Routes start and end at Home by default.
-          <div className="mt-2">
-            <Button small onClick={() => setEdit({ draft: { kind: 'home', name: 'Home' } })}>
-              Add home address
-            </Button>
+      {(!locations.some((l) => l.kind === 'home') || !locations.some((l) => l.kind === 'work')) && (
+        <Banner tone="info" title="Home and work">
+          Routes start and end at Home by default; on your workdays they can start or end at Work (Settings → Work schedule).
+          <div className="mt-2 flex flex-wrap gap-2">
+            {!locations.some((l) => l.kind === 'home') && (
+              <Button small onClick={() => setEdit({ draft: { kind: 'home', name: 'Home' } })}>
+                Add home address
+              </Button>
+            )}
+            {!locations.some((l) => l.kind === 'work') && (
+              <Button small variant="tinted" onClick={() => setEdit({ draft: { kind: 'work', name: 'Work' } })}>
+                Add work address
+              </Button>
+            )}
           </div>
         </Banner>
       )}

@@ -84,7 +84,8 @@ export async function syncCalendars(): Promise<SyncSummary> {
         }
 
         const title = ev.summary ?? '';
-        const cls = classify(title, settings.categories);
+        let cls = classify(title, settings.categories);
+        if (!cls && settings.importAllWithLocation && (ev.location ?? '').trim()) cls = { categoryId: 'general', keyword: '' };
         // Unrelated events are never stored.
         if (!prev && !cls) continue;
         if (prev && !cls && !prev.categoryOverride) {

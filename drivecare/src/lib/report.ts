@@ -59,7 +59,10 @@ export interface TreatmentReport {
     tripsMissingDistance: number;
     estCost: number | null;
     costPerTrip: number | null;
+    reimbursement: number | null;
   };
+  reimburseRate: number | null;
+  title: string;
   byCategory: Breakdown[];
   byClinic: Breakdown[];
   bySource: { source: string; km: number; trips: number }[];
@@ -191,7 +194,10 @@ export function buildTreatmentReport(
       tripsMissingDistance: rows.length - tripsWithKm,
       estCost: cpk != null ? totalKm * cpk : null,
       costPerTrip: cpk != null && tripsWithKm > 0 ? (totalKm * cpk) / tripsWithKm : null,
+      reimbursement: settings.reimburseRate != null ? totalKm * settings.reimburseRate : null,
     },
+    reimburseRate: settings.reimburseRate,
+    title: settings.reportTitle,
     byCategory,
     byClinic,
     bySource: [...sourceMap.values()],

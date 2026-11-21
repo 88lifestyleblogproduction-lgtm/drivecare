@@ -74,13 +74,6 @@ export const DEFAULT_CATEGORIES: CategoryDef[] = [
     color: '#32ade6',
   },
   {
-    id: 'icbc',
-    label: 'ICBC / Legal / Assessment',
-    keywords: ['icbc', 'adjuster', 'lawyer', 'independent medical', 'ime'],
-    builtIn: true,
-    color: '#ffd60a',
-  },
-  {
     id: 'physio',
     label: 'Physiotherapy',
     keywords: ['physiotherapy', 'physiotherapist', 'physio', 'physical therapy', 'pt'],
@@ -93,6 +86,20 @@ export const DEFAULT_CATEGORIES: CategoryDef[] = [
     keywords: ['doctor', 'physician', 'specialist', 'dr', 'gp', 'physiatrist', 'neurologist'],
     builtIn: true,
     color: '#34c759',
+  },
+  {
+    id: 'icbc',
+    label: 'ICBC / Legal / Assessment',
+    keywords: ['icbc', 'adjuster', 'lawyer', 'independent medical', 'ime'],
+    builtIn: true,
+    color: '#ffd60a',
+  },
+  {
+    id: 'general',
+    label: 'Other appointment / visit',
+    keywords: [],
+    builtIn: true,
+    color: '#8e8e93',
   },
 ];
 
@@ -119,15 +126,30 @@ export const DEFAULT_SETTINGS: AppSettings = {
   workDays: [],
   workdayStart: 'work',
   workdayEnd: 'home',
+  tabLabel: 'Treatments',
+  reportTitle: 'Treatment Travel Report',
+  reimburseRate: null,
+  importAllWithLocation: false,
   lastBackupAt: null,
 };
 
 export function withDefaults(s: Partial<AppSettings> | undefined): AppSettings {
   const merged: AppSettings = { ...DEFAULT_SETTINGS, ...(s ?? {}), id: 'app' };
   if (!Array.isArray(merged.categories) || merged.categories.length === 0) merged.categories = DEFAULT_CATEGORIES;
-  else merged.categories = addMissingDefaults(merged.categories);
+  else merged.categories = orderBuiltIns(addMissingDefaults(merged.categories));
+  if (!merged.tabLabel?.trim()) merged.tabLabel = DEFAULT_SETTINGS.tabLabel;
+  if (!merged.reportTitle?.trim()) merged.reportTitle = DEFAULT_SETTINGS.reportTitle;
   if (!Array.isArray(merged.workDays)) merged.workDays = [];
   return merged;
+}
+
+/** Custom types first (checked first), then built-ins in their default priority order. */
+function orderBuiltIns(cats: CategoryDef[]): CategoryDef[] {
+  const idx = (id: string) => {
+    const i = DEFAULT_CATEGORIES.findIndex((d) => d.id === id);
+    return i < 0 ? 999 : i;
+  };
+  return [...cats.filter((c) => !c.builtIn), ...cats.filter((c) => c.builtIn).sort((a, b) => idx(a.id) - idx(b.id))];
 }
 
 /** New built-in types added in later versions are inserted in their default position. */

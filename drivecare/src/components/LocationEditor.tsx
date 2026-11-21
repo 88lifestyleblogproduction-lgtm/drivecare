@@ -180,6 +180,7 @@ export default function LocationEditor({
         geocodeLabel,
         matchKeys: [...keys],
         notes: f.notes,
+        autoLocated: false,
         createdAt: existing?.createdAt ?? stamp,
         updatedAt: stamp,
       };

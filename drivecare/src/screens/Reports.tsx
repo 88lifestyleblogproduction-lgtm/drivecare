@@ -15,12 +15,12 @@ import { errMsg } from '../lib/util';
 export default function ReportsScreen() {
   const [view, setView] = useState<'treatment' | 'exports'>('treatment');
   return (
-    <Page title="Reports" subtitle="Treatment travel records and exports">
+    <Page title="Reports" subtitle="Travel records and exports">
       <Segmented
         value={view}
         onChange={setView}
         options={[
-          { value: 'treatment', label: 'Treatment travel' },
+          { value: 'treatment', label: 'Travel report' },
           { value: 'exports', label: 'Other exports' },
         ]}
       />
@@ -65,7 +65,7 @@ function TreatmentReportView() {
     setBusy('pdf');
     try {
       const blob = await reportPdf(report, settings, locations);
-      await saveFile(blob, `DriveCare-treatment-travel-${filter.startKey}-to-${filter.endKey}.pdf`);
+      await saveFile(blob, `DriveCare-${slug(settings.reportTitle)}-${filter.startKey}-to-${filter.endKey}.pdf`);
     } catch (e) {
       toast(`PDF export failed: ${errMsg(e)}`, 'error');
     } finally {
@@ -75,7 +75,7 @@ function TreatmentReportView() {
   async function exportCsv() {
     setBusy('csv');
     try {
-      await saveFile(reportCsv(report), `DriveCare-treatment-travel-${filter.startKey}-to-${filter.endKey}.csv`);
+      await saveFile(reportCsv(report), `DriveCare-${slug(settings.reportTitle)}-${filter.startKey}-to-${filter.endKey}.csv`);
     } catch (e) {
       toast(`CSV export failed: ${errMsg(e)}`, 'error');
     } finally {
@@ -126,7 +126,17 @@ function TreatmentReportView() {
         <Stat icon={<IconRoute size={16} />} tone="blue" label="Associated trips" value={String(t.trips)} sub={t.costPerTrip != null ? `≈ ${fmtCAD(t.costPerTrip)} per trip` : t.tripsMissingDistance ? `${t.tripsMissingDistance} without distance` : 'Cost per trip unavailable'} />
       </div>
 
-      <Section title="Treatment km by month">
+      {t.reimbursement != null && (
+        <Stat
+          icon={<IconShare size={16} />}
+          tone="green"
+          label={`Mileage reimbursement at $${report.reimburseRate}/km`}
+          value={fmtCAD(t.reimbursement)}
+          sub="Rate set in Settings → App & reports"
+        />
+      )}
+
+      <Section title="Km by month">
         <Card className="p-3">
           <BarChart data={monthly} fmt={(n) => `${Math.round(n)} km`} color="#30b0c7" />
         </Card>
@@ -191,7 +201,7 @@ function TreatmentReportView() {
       </Section>
 
       <Banner tone="info">
-        This report organises your own records for submission or review. It does not determine whether any travel or expense is eligible for reimbursement by ICBC.
+        This report organises your own records for submission or review. It does not determine whether any travel or expense is eligible for reimbursement by ICBC, an employer or any other payer.
         Fuel costs are estimates based on your own fuel records.
       </Banner>
     </>
@@ -219,4 +229,8 @@ function OtherExports() {
       <p className="px-1 text-[12px] text-muted">Covers records up to {fmtKey(stamp)}.</p>
     </>
   );
+}
+
+function slug(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'report';
 }

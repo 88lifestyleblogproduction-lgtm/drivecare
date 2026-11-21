@@ -159,13 +159,13 @@ function Shell() {
           </>
         )}
       </main>
-      <TabBar tab={tab} onChange={setTab} />
+      <TabBar tab={tab} onChange={setTab} treatmentsLabel={settings.tabLabel} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </NavContext.Provider>
   );
 }
 
-function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
+function TabBar({ tab, onChange, treatmentsLabel }: { tab: Tab; onChange: (t: Tab) => void; treatmentsLabel: string }) {
   return (
     <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bar backdrop-blur-xl" aria-label="Main">
       <div className="mx-auto flex max-w-2xl">
@@ -183,7 +183,7 @@ function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
               <span className={cx('flex h-8 w-14 items-center justify-center rounded-full transition-colors', active && 'bg-accent/12')}>
                 <Icon size={23} />
               </span>
-              {t.label}
+              <span className="max-w-[72px] truncate">{t.id === 'treatments' ? treatmentsLabel : t.label}</span>
             </button>
           );
         })}

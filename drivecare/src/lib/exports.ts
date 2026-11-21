@@ -22,6 +22,7 @@ export function reportCsv(r: TreatmentReport): Blob {
     'Distance (km)',
     'Distance measured by',
     'Estimated fuel cost (CAD)',
+    ...(r.reimburseRate != null ? [`Reimbursement at $${r.reimburseRate}/km (CAD)`] : []),
   ];
   const rows: unknown[][] = r.rows.map((x) => [
     x.date,
@@ -36,6 +37,7 @@ export function reportCsv(r: TreatmentReport): Blob {
     km2(x.km),
     x.source,
     money(x.estCost),
+    ...(r.reimburseRate != null ? [x.km != null ? (x.km * r.reimburseRate).toFixed(2) : ''] : []),
   ]);
   for (const a of r.apptsWithoutTravel) {
     rows.push([dateKey(a.start), a.allDay ? 'All day' : `${fmtTime(a.start)}–${fmtTime(a.end)}`, '', a.summary, '', '', '', '', 'No travel recorded', '', '', '']);
@@ -125,7 +127,7 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(20);
   doc.setTextColor(20, 20, 20);
-  doc.text('Treatment Travel Report', M, 56);
+  doc.text(pdfText(r.title), M, 56);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(90, 90, 90);
@@ -150,6 +152,9 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
       ['Total treatment-related kilometres', `${r.totals.totalKm.toFixed(1)} km`],
       ['Fuel cost per kilometre', cpkText],
       ['Estimated fuel cost', r.totals.estCost == null ? 'Unavailable (no reliable fuel cost per km)' : `CAD $${r.totals.estCost.toFixed(2)}`],
+      ...(r.reimburseRate != null && r.totals.reimbursement != null
+        ? [[`Mileage reimbursement at $${r.reimburseRate}/km`, `CAD $${r.totals.reimbursement.toFixed(2)}`]]
+        : []),
       ['Trips without a distance', String(r.totals.tripsMissingDistance)],
       ['Appointments with no recorded travel', String(r.apptsWithoutTravel.length)],
     ].map((row) => row.map(pdfText)),
@@ -251,8 +256,8 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
     '- "GPS recorded" distances were measured on the phone while the app was open. "Routing estimate" distances come from a routing service',
     '  (OpenStreetMap data) and are estimates. "Manually entered" and "Odometer" distances were entered by the user.',
     '- Estimated fuel cost = distance x fuel cost per kilometre derived from the user\'s own fuel purchase records. It is an estimate.',
-    '- This report organises personal records. It does not determine whether any travel or expense is eligible for reimbursement by ICBC',
-    '  or any other insurer. Confirm requirements with your ICBC adjuster or representative.',
+    '- This report organises personal records. It does not determine whether any travel or expense is eligible for reimbursement by ICBC,',
+    '  an employer or any other payer. Confirm requirements with the organisation you submit it to.',
   ];
   if (y > doc.internal.pageSize.getHeight() - 110) {
     doc.addPage();
@@ -272,7 +277,7 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
     doc.setFontSize(8);
     doc.setTextColor(140, 140, 140);
     const H = doc.internal.pageSize.getHeight();
-    doc.text(pdfText(`DriveCare - Treatment Travel Report - ${r.filter.startKey} to ${r.filter.endKey}`), M, H - 20);
+    doc.text(pdfText(`DriveCare - ${r.title} - ${r.filter.startKey} to ${r.filter.endKey}`), M, H - 20);
     doc.text(`Page ${i} of ${pages}`, W - M, H - 20, { align: 'right' });
   }
 

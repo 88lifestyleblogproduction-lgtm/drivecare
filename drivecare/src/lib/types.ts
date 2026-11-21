@@ -45,6 +45,8 @@ export interface SavedLocation {
   /** Normalised calendar location strings (or "title:<summary>") that map to this place. */
   matchKeys: string[];
   notes: string;
+  /** Located automatically from calendar text; not yet checked by the user */
+  autoLocated?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -173,6 +175,14 @@ export interface AppSettings {
   /** Where a workday's treatment route starts and ends by default */
   workdayStart: 'home' | 'work';
   workdayEnd: 'home' | 'work';
+  /** Name of the appointments tab (e.g. "Treatments", "Visits", "Clients") */
+  tabLabel: string;
+  /** Title printed on PDF/CSV reports */
+  reportTitle: string;
+  /** Optional reimbursement rate in CAD per km (e.g. an employer's or insurer's rate) */
+  reimburseRate: number | null;
+  /** Also import calendar events that have a location but match no keyword (business use) */
+  importAllWithLocation: boolean;
   lastBackupAt: string | null;
 }
 
