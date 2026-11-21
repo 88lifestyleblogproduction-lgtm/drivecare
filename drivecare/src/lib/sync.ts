@@ -5,7 +5,7 @@ import { loadSettings, saveSettings } from './settings';
 import { normalizeKey, titleKey } from './address';
 import { zonedToIso } from './time';
 import { errMsg, nowIso } from './util';
-import type { Appointment, SavedLocation, Trip } from './types';
+import type { Appointment, CategoryDef, SavedLocation, Trip } from './types';
 
 export interface SyncSummary {
   scanned: number;
@@ -174,6 +174,25 @@ export async function applyLocationToMatching(loc: SavedLocation): Promise<numbe
     const key = normalizeKey(a.locationRaw);
     const match = key ? loc.matchKeys.includes(key) : loc.matchKeys.includes(titleKey(a.summary));
     if (match) changed.push({ ...a, locationId: loc.id, updatedAt: stamp });
+  }
+  await putMany('appointments', changed);
+  return changed.length;
+}
+
+/**
+ * Re-applies the current keyword rules to imported appointments whose type you have not chosen
+ * yourself (e.g. after keywords or their priority change). No network needed.
+ */
+export async function reclassifyStored(categories: CategoryDef[]): Promise<number> {
+  const appts = await getAll<Appointment>('appointments');
+  const stamp = nowIso();
+  const changed: Appointment[] = [];
+  for (const a of appts) {
+    if (a.source !== 'google' || a.categoryOverride) continue;
+    const cls = classify(a.summary, categories);
+    if (cls && (cls.categoryId !== a.categoryId || cls.keyword !== a.matchedKeyword)) {
+      changed.push({ ...a, categoryId: cls.categoryId, matchedKeyword: cls.keyword, updatedAt: stamp });
+    }
   }
   await putMany('appointments', changed);
   return changed.length;

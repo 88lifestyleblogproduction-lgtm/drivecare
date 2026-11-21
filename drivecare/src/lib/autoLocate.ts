@@ -1,6 +1,7 @@
 import { cacheGet, cacheSet, getAll, put } from './db';
 import { normalizeKey, parseAddress } from './address';
 import { geocodeAddress } from './geocode';
+import { hasCoords } from './geo';
 import { isActiveAppt } from './report';
 import { applyLocationToMatching } from './sync';
 import type { Appointment, LocationKind, SavedLocation } from './types';
@@ -34,16 +35,37 @@ export async function autoLocateAppointments(): Promise<number> {
       if (key && !known.has(key) && !todo.has(key)) todo.set(key, a);
     }
     let created = 0;
+
+    // Saved places (e.g. Home typed in by hand) that have a street address but no map position yet
+    for (const l of locs) {
+      if (hasCoords(l) || (!l.street && !l.postalCode)) continue;
+      const failKey = `autoloc2-place-fail:${l.id}:${normalizeKey(l.street + l.city + l.postalCode)}`;
+      if (await cacheGet<boolean>(failKey, 7 * 864e5)) continue;
+      let results;
+      try {
+        results = await geocodeAddress({ name: '', street: l.street, city: l.city, province: l.province, postalCode: l.postalCode });
+      } catch {
+        return created;
+      }
+      const g = results.find((r) => !l.province || !r.province || r.province === l.province);
+      if (!g) {
+        await cacheSet(failKey, true);
+        continue;
+      }
+      await put('locations', { ...l, lat: g.lat, lng: g.lng, coordSource: 'geocoded', geocodeLabel: g.displayName, autoLocated: true, updatedAt: nowIso() });
+      created++;
+    }
+
     for (const [key, a] of todo) {
       if (await cacheGet<boolean>(`autoloc2-fail:${key}`, 7 * 864e5)) continue;
       const p = parseAddress(a.locationRaw);
-      if (!p.street && !p.postalCode) {
+      if (!p.street && !p.postalCode && p.name.trim().length < 6) {
         await cacheSet(`autoloc2-fail:${key}`, true);
         continue;
       }
       let results;
       try {
-        results = await geocodeAddress({ name: '', street: p.street, city: p.city, province: p.province, postalCode: p.postalCode });
+        results = await geocodeAddress({ name: p.street ? '' : p.name, street: p.street, city: p.city, province: p.province, postalCode: p.postalCode });
       } catch {
         break; // offline or rate-limited: try again later
       }

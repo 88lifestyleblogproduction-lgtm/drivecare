@@ -154,12 +154,18 @@ function Appointments() {
   const { results, calculate } = useRouteResults(allPairs, settings);
 
   // 1) Find map positions for calendar addresses automatically.
-  const unlocatedSig = appointments
-    .filter((a) => isActiveAppt(a) && !a.locationId && a.locationRaw)
-    .map((a) => a.id)
-    .join(',');
+  const unlocatedSig =
+    appointments
+      .filter((a) => isActiveAppt(a) && !a.locationId && a.locationRaw)
+      .map((a) => a.id)
+      .join(',') +
+    '|' +
+    locations
+      .filter((l) => !hasCoords(l) && (l.street || l.postalCode))
+      .map((l) => l.id)
+      .join(',');
   useEffect(() => {
-    if (!unlocatedSig) return;
+    if (unlocatedSig === '|') return;
     void autoLocateAppointments().then((n) => {
       if (n) toast(`Located ${n} address${n > 1 ? 'es' : ''} from your calendar automatically`);
     });
@@ -457,7 +463,7 @@ function ApptRow({ appt, loc, past, onClick }: { appt: Appointment; loc?: SavedL
           {loc ? (
             <>
               <span className="truncate">{locationTitle(loc)}</span>
-              {loc.autoLocated && <Badge tone="gray">Auto-located</Badge>}
+              {loc.autoLocated && <Badge tone={loc.geocodeLabel.startsWith('Approximate') ? 'orange' : 'gray'}>{loc.geocodeLabel.startsWith('Approximate') ? 'Approx. location' : 'Auto-located'}</Badge>}
             </>
           ) : (
             <Badge tone="orange">{appt.locationRaw ? 'Address not found' : 'No location'}</Badge>

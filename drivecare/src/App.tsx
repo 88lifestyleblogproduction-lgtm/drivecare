@@ -5,7 +5,7 @@ import { DataProvider, useData } from './lib/data';
 import { NavContext, type Nav, type Tab, type TreatmentView } from './lib/nav';
 import { consumeOAuthRedirect, listCalendars } from './lib/google';
 import { loadSettings, saveSettings } from './lib/settings';
-import { syncCalendars } from './lib/sync';
+import { reclassifyStored, syncCalendars } from './lib/sync';
 import { recorder } from './lib/recorder';
 import { todayKey } from './lib/time';
 import { errMsg } from './lib/util';
@@ -138,6 +138,14 @@ function Shell() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-apply keyword rules when they change (or after an app update changes their priority).
+  const catSig = JSON.stringify(settings.categories.map((c) => [c.id, c.keywords]));
+  useEffect(() => {
+    if (!loaded) return;
+    void reclassifyStored(settings.categories).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catSig, loaded]);
 
   // Keep the recorder's accuracy setting current
   useEffect(() => {

@@ -16,6 +16,8 @@ export interface GeocodeResult {
   city: string;
   province: string;
   postalCode: string;
+  /** Only the postal area is known (first 3 characters) — position may be off by a few km */
+  approximate?: boolean;
 }
 
 interface NominatimItem {
@@ -127,5 +129,84 @@ export async function geocodeAddress(p: AddressParts, onAttempt?: (label: string
     const r = await search(a.params);
     if (r.length) return r;
   }
+
+  // Government of Canada geolocation (Natural Resources Canada): street addresses across Canada.
+  const full = [street, p.city, p.province || 'BC'].filter(Boolean).join(', ');
+  if (street) {
+    onAttempt?.('Canada address service');
+    const r = await searchCanada(full);
+    if (r.length) return r;
+  }
+  if (p.name) {
+    onAttempt?.('Canada place search');
+    const r = await searchCanada([p.name, p.city].filter(Boolean).join(', '));
+    if (r.length) return r;
+  }
+  // Last resort: postal area (first 3 characters of the postal code). Approximate.
+  const fsa = p.postalCode.replace(/\s+/g, '').slice(0, 3).toUpperCase();
+  if (/^[A-Z]\d[A-Z]$/.test(fsa)) {
+    onAttempt?.('postal area');
+    const r = await searchCanada(fsa);
+    if (r.length) return r.map((x) => ({ ...x, approximate: true, displayName: `Approximate — postal area ${fsa} (${x.displayName})` }));
+  }
   return [];
+}
+
+/**
+ * Natural Resources Canada geolocation services (free, no key). Tries the newer Geolocator API and
+ * the older Geolocation service (which NRCan says stops on 31 March 2027). Responses are read
+ * defensively because the two services use different formats.
+ */
+async function searchCanada(q: string): Promise<GeocodeResult[]> {
+  const key = `geoca:${normalizeKey(q)}`;
+  const cached = await cacheGet<GeocodeResult[]>(key, TTL);
+  if (cached && cached.length) return cached;
+  const urls = [
+    `https://geolocator.api.geo.ca/?q=${encodeURIComponent(q)}&lang=en`,
+    `https://geogratis.gc.ca/services/geolocation/en/locate?q=${encodeURIComponent(q)}`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await throttled('nrcan', 500, () => fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 12000));
+      if (!res.ok) continue;
+      const out = readCanada(await res.json()).filter((r) => r.lat > 41 && r.lat < 84 && r.lng > -142 && r.lng < -52);
+      if (out.length) {
+        await cacheSet(key, out);
+        return out;
+      }
+    } catch {
+      /* try the next service */
+    }
+  }
+  return [];
+}
+
+function num(v: unknown): number | null {
+  const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function readCanada(json: unknown): GeocodeResult[] {
+  const list: unknown[] = Array.isArray(json)
+    ? json
+    : json && typeof json === 'object'
+      ? ((json as Record<string, unknown>).results as unknown[]) ?? ((json as Record<string, unknown>).features as unknown[]) ?? ((json as Record<string, unknown>).items as unknown[]) ?? []
+      : [];
+  const out: GeocodeResult[] = [];
+  for (const it of list.slice(0, 5)) {
+    if (!it || typeof it !== 'object') continue;
+    const o = it as Record<string, unknown>;
+    let lat = num(o.lat ?? o.latitude ?? o.y);
+    let lng = num(o.lng ?? o.lon ?? o.longitude ?? o.x);
+    const geom = o.geometry as { coordinates?: unknown[] } | undefined;
+    if ((lat == null || lng == null) && geom?.coordinates && geom.coordinates.length >= 2) {
+      lng = num(geom.coordinates[0]);
+      lat = num(geom.coordinates[1]);
+    }
+    if (lat == null || lng == null) continue;
+    const props = (o.properties as Record<string, unknown>) ?? {};
+    const title = String(o.title ?? o.name ?? props.title ?? props.name ?? o.description ?? 'Location found');
+    out.push({ lat, lng, displayName: title, street: '', city: '', province: '', postalCode: '' });
+  }
+  return out;
 }
