@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Badge, Banner, Button, Field, List, Row, Select, Sheet, Spinner, TextArea, TextInput, Toggle, useToast } from './ui';
 import MapView from './MapView';
-import { geocode, type GeocodeResult } from '../lib/geocode';
+import { geocodeAddress, type GeocodeResult } from '../lib/geocode';
 import { formatAddress, isValidPostal, locationTitle, PROVINCES } from '../lib/address';
 import { put, remove } from '../lib/db';
 import { applyLocationToMatching } from '../lib/sync';
@@ -25,12 +25,28 @@ export interface LocationDraft {
   notes?: string;
 }
 
-const KIND_OPTIONS = [
+const KIND_OPTIONS: { value: LocationKind; label: string }[] = [
   { value: 'clinic', label: 'Clinic / provider' },
+  { value: 'hospital', label: 'Hospital' },
+  { value: 'lab', label: 'Lab / imaging' },
+  { value: 'pharmacy', label: 'Pharmacy' },
+  { value: 'office', label: 'Office (ICBC, lawyer, assessor…)' },
   { value: 'home', label: 'Home' },
   { value: 'work', label: 'Work' },
   { value: 'other', label: 'Other place' },
 ];
+
+export const KIND_LABEL: Record<LocationKind, string> = {
+  clinic: 'Clinic',
+  hospital: 'Hospital',
+  lab: 'Lab',
+  pharmacy: 'Pharmacy',
+  office: 'Office',
+  home: 'Home',
+  work: 'Work',
+  other: 'Place',
+};
+export const KIND_ORDER: Record<LocationKind, number> = { home: 0, work: 1, clinic: 2, hospital: 3, lab: 4, pharmacy: 5, office: 6, other: 7 };
 
 export default function LocationEditor({
   open,
@@ -63,6 +79,7 @@ export default function LocationEditor({
   const [results, setResults] = useState<GeocodeResult[] | null>(null);
   const [busy, setBusy] = useState<'' | 'geo' | 'gps' | 'save'>('');
   const [error, setError] = useState<string | null>(null);
+  const [searching, setSearching] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -95,15 +112,15 @@ export default function LocationEditor({
     setError(null);
     setBusy('geo');
     try {
-      const q = [f.street, f.city, f.province, f.postalCode].filter(Boolean).join(', ') || f.name;
-      if (!q) throw new Error('Enter a street address first.');
-      const r = await geocode(q);
+      setResults(null);
+      const r = await geocodeAddress(f, (label) => setSearching(label));
       setResults(r);
-      if (!r.length) setError('No match found. Check the address, or tap the map to place the pin yourself.');
+      if (!r.length) setError('No match found on OpenStreetMap. Tap the map to place the pin yourself — zoom in with two fingers, then tap the building.');
     } catch (e) {
       setError(errMsg(e));
     } finally {
       setBusy('');
+      setSearching('');
     }
   }
 
@@ -215,7 +232,7 @@ export default function LocationEditor({
         <Field label="Type">
           <Select value={f.kind} onChange={(v) => set({ kind: v as LocationKind })} options={KIND_OPTIONS} />
         </Field>
-        <Field label="Clinic, provider or place name">
+        <Field label="Name (clinic, provider, office or place)">
           <TextInput value={f.name} onChange={(v) => set({ name: v })} placeholder="e.g. Kitsilano Physiotherapy" />
         </Field>
         <Field label="Street address">
@@ -237,7 +254,7 @@ export default function LocationEditor({
       <section className="space-y-2">
         <div className="flex flex-wrap gap-2">
           <Button small variant="tinted" onClick={() => void find()} disabled={!!busy}>
-            {busy === 'geo' ? <Spinner size={14} /> : null} Find on map
+            {busy === 'geo' ? <Spinner size={14} /> : null} {busy === 'geo' && searching ? `Searching ${searching}…` : 'Find on map'}
           </Button>
           <Button small variant="secondary" onClick={useGps} disabled={!!busy}>
             {busy === 'gps' ? <Spinner size={14} /> : null} Use my current location
@@ -339,10 +356,8 @@ export function LocationSelect({
   allowNone?: boolean;
   noneLabel?: string;
 }) {
-  const order: Record<LocationKind, number> = { home: 0, work: 1, clinic: 2, other: 3 };
-  const prefix: Record<LocationKind, string> = { home: 'Home', work: 'Work', clinic: 'Clinic', other: 'Place' };
   const opts = [...locations]
-    .sort((a, b) => order[a.kind] - order[b.kind] || locationTitle(a).localeCompare(locationTitle(b)))
-    .map((l) => ({ value: l.id, label: `${prefix[l.kind]} · ${locationTitle(l)}${hasCoords(l) ? '' : ' (no map position)'}` }));
+    .sort((a, b) => (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9) || locationTitle(a).localeCompare(locationTitle(b)))
+    .map((l) => ({ value: l.id, label: `${KIND_LABEL[l.kind] ?? 'Place'} · ${locationTitle(l)}${hasCoords(l) ? '' : ' (no map position)'}` }));
   return <Select value={value ?? ''} onChange={(v) => onChange(v || null)} options={[...(allowNone ? [{ value: '', label: noneLabel }] : []), ...opts]} />;
 }

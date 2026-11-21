@@ -10,7 +10,8 @@ import { getToken } from '../lib/google';
 import { formatAddress, googleMapsUrl, locationTitle, normalizeKey, parseAddress, titleKey } from '../lib/address';
 import { categoryById, categoryLabel } from '../lib/settings';
 import { clinicInfo, isActiveAppt } from '../lib/report';
-import { buildPoints, buildSegments, dayAppointments, reconcilePlan, saveSegmentsAsTrips, type PlanSegment, type SegmentState } from '../lib/planner';
+import { buildPoints, buildSegments, dayAppointments, defaultEnds, isWorkday, reconcilePlan, saveSegmentsAsTrips, type PlanPoint, type PlanSegment, type SegmentState } from '../lib/planner';
+import { pairsOf, useRouteResults } from '../lib/useRoutes';
 import { peekRoute, providerName, routeBetween } from '../lib/routing';
 import { computeFuelStats } from '../lib/fuel';
 import { hasCoords } from '../lib/geo';
@@ -40,7 +41,7 @@ export default function TreatmentsScreen() {
         options={[
           { value: 'appointments', label: 'Appointments' },
           { value: 'route', label: 'Route' },
-          { value: 'clinics', label: 'Clinics' },
+          { value: 'clinics', label: 'Places' },
         ]}
       />
       {nav.treatmentView === 'appointments' && <Appointments />}
@@ -95,7 +96,11 @@ function SyncStatus() {
 /* ---------------- Appointments ---------------- */
 
 function Appointments() {
-  const { appointments, locations, settings, loaded } = useData();
+  const { appointments, locations, settings, loaded, routePlans } = useData();
+  const nav = useNav();
+  const toast = useToast();
+  const [editLeg, setEditLeg] = useState<{ day: string; key: string } | null>(null);
+  const [legText, setLegText] = useState('');
   const [filter, setFilter] = useState<'upcoming' | 'past' | 'address'>('upcoming');
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -112,6 +117,45 @@ function Appointments() {
     .sort((a, b) => (filter === 'past' ? b.start.localeCompare(a.start) : a.start.localeCompare(b.start)));
   const groups = groupBy(list, (a) => dateKey(a.start));
   const needAddress = appointments.filter((a) => isActiveAppt(a) && !a.locationId).length;
+
+  // Driving distance between consecutive appointments, using the same plan (order, skips, manual
+  // adjustments) as the route planner.
+  const apptMap = useMemo(() => new Map(appointments.map((a) => [a.id, a])), [appointments]);
+  const dayKeys = [...groups.keys()].join(',');
+  const dayData = useMemo(() => {
+    const m = new Map<string, { plan: RoutePlan; points: PlanPoint[] }>();
+    if (filter === 'address') return m;
+    for (const day of dayKeys ? dayKeys.split(',') : []) {
+      const dAppts = dayAppointments(appointments, day);
+      if (dAppts.length < 2) continue;
+      const plan = reconcilePlan(routePlans.find((p) => p.id === day), day, dAppts, settings, locations);
+      m.set(day, { plan, points: buildPoints(plan, apptMap, locMap, settings) });
+    }
+    return m;
+  }, [dayKeys, filter, appointments, routePlans, settings, locations, apptMap, locMap]);
+  const allPairs = useMemo(() => [...dayData.values()].flatMap((d) => pairsOf(d.points.filter((p) => p.role === 'stop'))), [dayData]);
+  const { results, calculate } = useRouteResults(allPairs, settings);
+
+  async function saveLeg(plan: RoutePlan, key: string) {
+    const v = parseNum(legText);
+    const manualKm = { ...plan.manualKm };
+    if (v == null) delete manualKm[key];
+    else if (v < 0 || v > 2000) return toast('Enter a distance between 0 and 2000 km', 'error');
+    else manualKm[key] = v;
+    await put('routePlans', { ...plan, manualKm, updatedAt: nowIso() });
+    setEditLeg(null);
+    toast(v == null ? 'Adjustment removed' : 'Distance adjusted');
+  }
+
+  function legFor(day: string, a: Appointment, b: Appointment) {
+    const d = dayData.get(day);
+    if (!d) return null;
+    const pa = d.points.find((p) => p.appointments.some((x) => x.id === a.id));
+    if (pa && pa.appointments.some((x) => x.id === b.id)) return { same: true as const, plan: d.plan };
+    const segs = buildSegments(d.points, d.plan, results);
+    const seg = segs.find((s) => s.fromApptId === a.id && s.toApptId === b.id);
+    return seg ? { same: false as const, seg, plan: d.plan } : null;
+  }
 
   return (
     <>
@@ -138,18 +182,140 @@ function Appointments() {
           text={filter === 'upcoming' ? 'Sync Google Calendar or add an appointment manually.' : undefined}
         />
       )}
-      {[...groups.entries()].map(([day, appts]) => (
-        <Section key={day} title={fmtKey(day)}>
-          <List>
-            {appts.map((a) => (
-              <ApptRow key={a.id} appt={a} loc={a.locationId ? locMap.get(a.locationId) : undefined} past={a.end < nowIsoStr} onClick={() => setOpenId(a.id)} />
-            ))}
-          </List>
-        </Section>
-      ))}
+      {[...groups.entries()].map(([day, appts]) => {
+        const ordered = filter === 'past' ? [...appts].reverse() : appts;
+        const d = dayData.get(day);
+        const stopPairs = d ? pairsOf(d.points.filter((p) => p.role === 'stop')) : [];
+        const pending = stopPairs.filter((p) => !results.get(p.key)?.result && !results.get(p.key)?.loading && !d!.plan.manualKm[p.key]);
+        const between = d ? buildSegments(d.points, d.plan, results).filter((s) => s.from.role === 'stop' && s.to.role === 'stop') : [];
+        const betweenKm = between.reduce((sum, s) => sum + (s.usedKm ?? 0), 0);
+        const incomplete = between.some((s) => s.usedKm == null);
+        return (
+          <Section
+            key={day}
+            title={fmtKey(day)}
+            action={
+              d ? (
+                <div className="flex items-center gap-1">
+                  {pending.length > 0 && (
+                    <Button
+                      small
+                      variant="plain"
+                      onClick={() =>
+                        void calculate(pending).then((f) => f && toast(`${f} distance${f > 1 ? 's' : ''} unavailable — tap to enter manually`, 'error'))
+                      }
+                    >
+                      Calculate km
+                    </Button>
+                  )}
+                  <Button small variant="plain" onClick={() => nav.openRouteFor(day)}>
+                    Route ›
+                  </Button>
+                </div>
+              ) : undefined
+            }
+            footer={
+              between.length > 0 ? `Between appointments: ${incomplete ? `${fmtNum1(betweenKm)}+ km (some legs missing)` : fmtKm(betweenKm)}. Tap a distance to adjust it.` : undefined
+            }
+          >
+            <List>
+              {ordered.map((a, i) => {
+                const next = ordered[i + 1];
+                const leg = next && isActiveAppt(a) && isActiveAppt(next) ? legFor(day, a, next) : null;
+                return (
+                  <div key={a.id}>
+                    <ApptRow appt={a} loc={a.locationId ? locMap.get(a.locationId) : undefined} past={a.end < nowIsoStr} onClick={() => setOpenId(a.id)} />
+                    {leg && (
+                      <LegRow
+                        leg={leg}
+                        editing={!leg.same && editLeg?.day === day && editLeg.key === leg.seg.manualKey}
+                        text={legText}
+                        onText={setLegText}
+                        onEdit={() => {
+                          if (leg.same) return;
+                          setEditLeg({ day, key: leg.seg.manualKey });
+                          setLegText(leg.seg.manualKm != null ? String(leg.seg.manualKm) : leg.seg.estKm != null ? leg.seg.estKm.toFixed(1) : '');
+                        }}
+                        onSave={() => !leg.same && void saveLeg(leg.plan, leg.seg.manualKey)}
+                        onCancel={() => setEditLeg(null)}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </List>
+          </Section>
+        );
+      })}
       <AppointmentDetail apptId={openId} onClose={() => setOpenId(null)} />
       <ManualAppointment open={adding} onClose={() => setAdding(false)} settingsCats={settings.categories} />
     </>
+  );
+}
+
+function LegRow({
+  leg,
+  editing,
+  text,
+  onText,
+  onEdit,
+  onSave,
+  onCancel,
+}: {
+  leg: { same: true; plan: RoutePlan } | { same: false; seg: PlanSegment; plan: RoutePlan };
+  editing: boolean;
+  text: string;
+  onText: (v: string) => void;
+  onEdit: () => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  if (leg.same) {
+    return (
+      <div className="flex items-center gap-2 bg-fill/50 px-4 py-1.5 text-[12px] text-muted">
+        <IconDown size={14} /> Same place · 0 km
+      </div>
+    );
+  }
+  const s = leg.seg;
+  const source =
+    s.manualKm != null
+      ? `Adjusted${s.estKm != null ? ` (estimate ${fmtKm(s.estKm)})` : ''}`
+      : s.estKm != null
+        ? `${s.provider} estimate${s.durationMin ? ` · ~${Math.round(s.durationMin)} min` : ''}`
+        : s.kind === 'missing'
+          ? s.missingReason
+          : s.error
+            ? 'Routing unavailable'
+            : 'Not calculated yet';
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2 bg-accent/8 px-4 py-2">
+        <IconDown size={14} className="text-accent" />
+        <div className="flex-1">
+          <NumberInput value={text} onChange={onText} placeholder="km (blank = no adjustment)" suffix="km" />
+        </div>
+        <Button small onClick={onSave}>
+          Save
+        </Button>
+        <Button small variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <button type="button" onClick={onEdit} className="flex w-full items-center gap-2 bg-fill/50 px-4 py-1.5 text-left text-[12px] active:bg-fill">
+      <IconDown size={14} className="text-accent" />
+      <span className="min-w-0 flex-1 truncate text-muted">{source}</span>
+      {s.loading ? (
+        <Spinner size={12} />
+      ) : s.usedKm != null ? (
+        <span className={`font-semibold tabular ${s.manualKm != null ? 'text-warn' : 'text-ink'}`}>{fmtKm(s.usedKm)} ✎</span>
+      ) : (
+        <span className="font-semibold text-warn">Enter km ✎</span>
+      )}
+    </button>
   );
 }
 
@@ -169,7 +335,7 @@ function ApptRow({ appt, loc, past, onClick }: { appt: Appointment; loc?: SavedL
     <Row
       onClick={onClick}
       left={
-        <div className={`w-16 text-[14px] font-semibold tabular ${inactive || past ? 'text-muted' : ''}`}>
+        <div className={`w-[74px] text-[14px] font-semibold whitespace-nowrap tabular ${inactive || past ? 'text-muted' : ''}`}>
           {appt.allDay ? 'All day' : fmtTime(appt.start)}
         </div>
       }
@@ -248,7 +414,7 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
       <List>
         <Detail label="Date" value={fmtKey(dateKey(a.start))} />
         <Detail label="Time" value={a.allDay ? 'All day' : `${fmtTime(a.start)} – ${fmtTime(a.end)}`} />
-        <Detail label="Clinic / provider" value={ci.name} />
+        <Detail label="Place / provider" value={ci.name} />
         <Detail label="Full address" value={ci.address} />
         <Detail label="Street" value={loc ? loc.street : parsed.street} />
         <Detail label="City" value={loc ? loc.city : parsed.city} />
@@ -260,7 +426,7 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
         {a.matchedKeyword && <Detail label="Matched keyword" value={`“${a.matchedKeyword}”`} />}
       </List>
 
-      <Section title="Clinic address">
+      <Section title="Address">
         {loc ? (
           <Banner tone="ok" title={`Confirmed: ${locationTitle(loc)}`}>
             {formatAddress(loc) || 'No street address'}
@@ -432,7 +598,7 @@ function ManualAppointment({ open, onClose, settingsCats }: { open: boolean; onC
         <Field label="Ends">
           <input type="datetime-local" className="w-full bg-transparent py-1 text-[17px] outline-none" value={end} onChange={(e) => setEnd(e.target.value)} />
         </Field>
-        <Field label="Clinic" hint="Add clinics in Treatments → Clinics.">
+        <Field label="Place" hint="Add places in Treatments → Places.">
           <LocationSelect value={locId} onChange={setLocId} locations={locations} noneLabel="Not set" />
         </Field>
       </List>
@@ -592,7 +758,22 @@ function RoutePlanner() {
       )}
 
       <List>
-        <Field label="Start from" hint={!plan.startLocationId ? 'Set your Home in Clinics → add a place of type Home.' : undefined}>
+        {isWorkday(day, settings) && (
+          <div className="flex items-center justify-between px-4 pt-2.5 text-[13px]">
+            <Badge tone="blue">Workday</Badge>
+            <button
+              type="button"
+              className="font-semibold text-accent"
+              onClick={() => {
+                const d = defaultEnds(day, settings, locations);
+                void savePlan({ ...plan, startLocationId: d.start, endLocationId: d.end });
+              }}
+            >
+              Use work schedule
+            </button>
+          </div>
+        )}
+        <Field label="Start from" hint={!plan.startLocationId ? 'Set your Home in Places → add a place of type Home.' : undefined}>
           <LocationSelect value={plan.startLocationId} onChange={(id) => void savePlan({ ...plan, startLocationId: id })} locations={locations} noneLabel="Choose…" />
         </Field>
         <Field label="End at">
@@ -805,12 +986,16 @@ function Clinics() {
     { kind: 'home', title: 'Home' },
     { kind: 'work', title: 'Work' },
     { kind: 'clinic', title: 'Clinics & providers' },
+    { kind: 'hospital', title: 'Hospitals' },
+    { kind: 'lab', title: 'Labs & imaging' },
+    { kind: 'pharmacy', title: 'Pharmacies' },
+    { kind: 'office', title: 'Offices (ICBC, legal, assessments)' },
     { kind: 'other', title: 'Other places' },
   ];
 
   return (
     <>
-      {!settings.homeLocationId && (
+      {!settings.homeLocationId && !locations.some((l) => l.kind === 'home') && (
         <Banner tone="info" title="Add your home">
           Routes start and end at Home by default.
           <div className="mt-2">
@@ -866,7 +1051,7 @@ function Clinics() {
                 ))}
               </List>
             ) : (
-              <Card className="px-4 py-3 text-[14px] text-muted">No clinics saved yet. Confirm an appointment address or add one.</Card>
+              <Card className="px-4 py-3 text-[14px] text-muted">No places saved yet. Confirm an appointment address or add one.</Card>
             )}
           </Section>
         );

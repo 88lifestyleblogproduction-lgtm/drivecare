@@ -32,6 +32,55 @@ export const DEFAULT_CATEGORIES: CategoryDef[] = [
     color: '#30b0c7',
   },
   {
+    id: 'chiro',
+    label: 'Chiropractic',
+    keywords: ['chiropractic', 'chiropractor', 'chiro'],
+    builtIn: true,
+    color: '#a2845e',
+  },
+  {
+    id: 'ot',
+    label: 'Occupational Therapy',
+    keywords: ['occupational therapy', 'occupational therapist'],
+    builtIn: true,
+    color: '#64d2ff',
+  },
+  {
+    id: 'counselling',
+    label: 'Counselling / Psychology',
+    keywords: ['counselling', 'counseling', 'counsellor', 'counselor', 'psychologist', 'psychology', 'psychotherapy', 'clinical counsellor'],
+    builtIn: true,
+    color: '#5e5ce6',
+  },
+  {
+    id: 'imaging',
+    label: 'Imaging / Lab tests',
+    keywords: ['x-ray', 'xray', 'mri', 'ct scan', 'ultrasound', 'imaging', 'blood test', 'lab test', 'lifelabs', 'bloodwork'],
+    builtIn: true,
+    color: '#8e8e93',
+  },
+  {
+    id: 'hospital',
+    label: 'Hospital / Surgery',
+    keywords: ['hospital', 'surgery', 'emergency', 'day surgery', 'pre-op', 'post-op'],
+    builtIn: true,
+    color: '#ff453a',
+  },
+  {
+    id: 'pharmacy',
+    label: 'Pharmacy',
+    keywords: ['pharmacy', 'pharmacist', 'prescription pickup'],
+    builtIn: true,
+    color: '#32ade6',
+  },
+  {
+    id: 'icbc',
+    label: 'ICBC / Legal / Assessment',
+    keywords: ['icbc', 'adjuster', 'lawyer', 'independent medical', 'ime'],
+    builtIn: true,
+    color: '#ffd60a',
+  },
+  {
     id: 'physio',
     label: 'Physiotherapy',
     keywords: ['physiotherapy', 'physiotherapist', 'physio', 'physical therapy', 'pt'],
@@ -67,13 +116,33 @@ export const DEFAULT_SETTINGS: AppSettings = {
   workLocationId: null,
   gpsMaxAccuracy: 50,
   theme: 'system',
+  workDays: [],
+  workdayStart: 'work',
+  workdayEnd: 'home',
   lastBackupAt: null,
 };
 
 export function withDefaults(s: Partial<AppSettings> | undefined): AppSettings {
   const merged: AppSettings = { ...DEFAULT_SETTINGS, ...(s ?? {}), id: 'app' };
   if (!Array.isArray(merged.categories) || merged.categories.length === 0) merged.categories = DEFAULT_CATEGORIES;
+  else merged.categories = addMissingDefaults(merged.categories);
+  if (!Array.isArray(merged.workDays)) merged.workDays = [];
   return merged;
+}
+
+/** New built-in types added in later versions are inserted in their default position. */
+function addMissingDefaults(cats: CategoryDef[]): CategoryDef[] {
+  const out = [...cats];
+  const have = new Set(out.map((c) => c.id));
+  DEFAULT_CATEGORIES.forEach((d, i) => {
+    if (have.has(d.id)) return;
+    const laterIds = new Set(DEFAULT_CATEGORIES.slice(i + 1).map((x) => x.id));
+    const idx = out.findIndex((c) => laterIds.has(c.id));
+    if (idx < 0) out.push(d);
+    else out.splice(idx, 0, d);
+    have.add(d.id);
+  });
+  return out;
 }
 
 export async function loadSettings(): Promise<AppSettings> {

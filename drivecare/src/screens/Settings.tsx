@@ -15,6 +15,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
   return (
     <Sheet open={open} onClose={onClose} title="Settings" closeLabel="Done">
       <GoogleSection />
+      <WorkSection />
       <KeywordSection />
       <RoutingSection />
       <TripSection />
@@ -164,6 +165,55 @@ function GoogleSection() {
           <Row title={<span className="text-bad">Disconnect Google Calendar</span>} onClick={() => void disconnect()} chevron={false} />
         </List>
       )}
+    </Section>
+  );
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function WorkSection() {
+  const { settings, locations } = useData();
+  const work = settings.workLocationId ? locations.find((l) => l.id === settings.workLocationId) : locations.find((l) => l.kind === 'work');
+  const home = settings.homeLocationId ? locations.find((l) => l.id === settings.homeLocationId) : locations.find((l) => l.kind === 'home');
+  const toggle = (d: number) =>
+    void saveSettings({ workDays: settings.workDays.includes(d) ? settings.workDays.filter((x) => x !== d) : [...settings.workDays, d].sort() });
+  const placeOpts = (cur: 'home' | 'work') => [
+    { value: 'home', label: `Home${home ? ` · ${home.name || home.street}` : ' (not set)'}` },
+    { value: 'work', label: `Work${work ? ` · ${work.name || work.street}` : ' (not set)'}` },
+  ].filter((o) => o.value === cur || o.value === 'home' || o.value === 'work');
+  return (
+    <Section
+      title="Work schedule"
+      footer="On the days you work, new day routes start and end at the places chosen here, so you don't have to set them each time. You can still change any day in the route planner. Set your Work address in Treatments → Places."
+    >
+      <List>
+        <div className="px-4 py-3">
+          <div className="mb-2 text-[13px] font-medium text-muted">Days I go to work</div>
+          <div className="flex gap-1.5">
+            {DAYS.map((label, d) => {
+              const on = settings.workDays.includes(d);
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => toggle(d)}
+                  aria-pressed={on}
+                  className={`h-10 flex-1 rounded-xl text-[13px] font-semibold transition ${on ? 'bg-accent text-white' : 'bg-fill text-muted'}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <Field label="On workdays, start from">
+          <Select value={settings.workdayStart} onChange={(v) => void saveSettings({ workdayStart: v as 'home' | 'work' })} options={placeOpts(settings.workdayStart)} />
+        </Field>
+        <Field label="On workdays, end at">
+          <Select value={settings.workdayEnd} onChange={(v) => void saveSettings({ workdayEnd: v as 'home' | 'work' })} options={placeOpts(settings.workdayEnd)} />
+        </Field>
+        {!work && <Row title={<span className="text-[14px] text-warn">No Work address saved yet — workdays will use Home until you add one.</span>} />}
+      </List>
     </Section>
   );
 }

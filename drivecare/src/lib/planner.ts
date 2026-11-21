@@ -7,7 +7,7 @@ import { newTrip } from './trips';
 import type { RouteResult } from './routing';
 import type { AppSettings, Appointment, PlanStop, RoutePlan, SavedLocation, Trip } from './types';
 import { nowIso, uid } from './util';
-import { dateKey, zonedToIso } from './time';
+import { dateKey, dayNumber, zonedToIso } from './time';
 
 export interface PlanPoint {
   key: string;
@@ -54,12 +54,12 @@ export function dayAppointments(appointments: Appointment[], day: string): Appoi
 
 /** Creates or updates a day's plan so it includes current appointments while keeping manual order/exclusions. */
 export function reconcilePlan(plan: RoutePlan | undefined, day: string, dayAppts: Appointment[], settings: AppSettings, locations: SavedLocation[] = []): RoutePlan {
-  const home = settings.homeLocationId ?? locations.find((l) => l.kind === 'home')?.id ?? null;
+  const { start, end } = defaultEnds(day, settings, locations);
   const base: RoutePlan = plan ?? {
     id: day,
     date: day,
-    startLocationId: home,
-    endLocationId: home,
+    startLocationId: start,
+    endLocationId: end,
     stops: [],
     manualKm: {},
     updatedAt: nowIso(),
@@ -76,6 +76,20 @@ export function reconcilePlan(plan: RoutePlan | undefined, day: string, dayAppts
     else stops.splice(idx, 0, stop);
   }
   return { ...base, stops };
+}
+
+export const weekdayOf = (key: string) => (((dayNumber(key) + 4) % 7) + 7) % 7; // 0 = Sunday
+
+export function isWorkday(key: string, settings: AppSettings): boolean {
+  return settings.workDays.includes(weekdayOf(key));
+}
+
+/** Default start/end: Home, or your work schedule's choice on workdays. */
+export function defaultEnds(day: string, settings: AppSettings, locations: SavedLocation[]) {
+  const home = settings.homeLocationId ?? locations.find((l) => l.kind === 'home')?.id ?? null;
+  const work = settings.workLocationId ?? locations.find((l) => l.kind === 'work')?.id ?? null;
+  if (!isWorkday(day, settings) || !work) return { start: home, end: home };
+  return { start: settings.workdayStart === 'work' ? work : home, end: settings.workdayEnd === 'work' ? work : home };
 }
 
 export function buildPoints(plan: RoutePlan, appts: Map<string, Appointment>, locs: Map<string, SavedLocation>, settings: AppSettings): PlanPoint[] {
@@ -144,7 +158,7 @@ export function buildSegments(points: PlanPoint[], plan: RoutePlan, results: Map
     if (!from.location || !to.location) {
       kind = 'missing';
       const bad = !from.location ? from : to;
-      missingReason = bad.role === 'stop' ? 'Clinic address not confirmed' : `No ${bad.role === 'start' ? 'starting' : 'ending'} location selected`;
+      missingReason = bad.role === 'stop' ? 'Address not confirmed' : `No ${bad.role === 'start' ? 'starting' : 'ending'} location selected`;
     } else if (!hasCoords(from.location) || !hasCoords(to.location)) {
       kind = 'missing';
       missingReason = 'Location has no map position yet';

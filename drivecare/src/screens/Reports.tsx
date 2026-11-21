@@ -37,7 +37,7 @@ function TreatmentReportView() {
   const [busy, setBusy] = useState<'' | 'pdf' | 'csv'>('');
   const costPerKm = useMemo(() => computeFuelStats(fuel).costPerKm, [fuel]);
   const report = useMemo(() => buildTreatmentReport(filter, appointments, trips, locations, settings, costPerKm), [filter, appointments, trips, locations, settings, costPerKm]);
-  const clinics = locations.filter((l) => l.kind === 'clinic' || appointments.some((a) => a.locationId === l.id));
+  const clinics = locations.filter((l) => (l.kind !== 'home' && l.kind !== 'work') || appointments.some((a) => a.locationId === l.id));
   const set = (p: Partial<ReportFilter>) => setFilter((f) => ({ ...f, ...p }));
 
   const monthly = useMemo(() => {
@@ -112,8 +112,8 @@ function TreatmentReportView() {
         <Field label="Treatment type">
           <Select value={filter.categoryId} onChange={(v) => set({ categoryId: v })} options={[{ value: 'all', label: 'All treatment appointments' }, ...settings.categories.map((c) => ({ value: c.id, label: c.label }))]} />
         </Field>
-        <Field label="Clinic">
-          <Select value={filter.locationId} onChange={(v) => set({ locationId: v })} options={[{ value: 'all', label: 'All clinics' }, ...clinics.map((l) => ({ value: l.id, label: locationTitle(l) }))]} />
+        <Field label="Clinic / place">
+          <Select value={filter.locationId} onChange={(v) => set({ locationId: v })} options={[{ value: 'all', label: 'All places' }, ...clinics.map((l) => ({ value: l.id, label: locationTitle(l) }))]} />
         </Field>
       </List>
 

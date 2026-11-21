@@ -3,7 +3,7 @@ export type ID = string;
 /** How a trip's distance was obtained. Never mixed silently. */
 export type DistanceSource = 'gps' | 'routing' | 'manual' | 'odometer';
 export type TripCategory = 'treatment' | 'personal' | 'work' | 'other';
-export type LocationKind = 'home' | 'work' | 'clinic' | 'other';
+export type LocationKind = 'home' | 'work' | 'clinic' | 'hospital' | 'lab' | 'pharmacy' | 'office' | 'other';
 export type ApptStatus = 'confirmed' | 'tentative' | 'cancelled' | 'removed';
 
 export interface FuelEntry {
@@ -168,6 +168,11 @@ export interface AppSettings {
   workLocationId: ID | null;
   gpsMaxAccuracy: number;
   theme: 'system' | 'light' | 'dark';
+  /** Days you go to work: 0 = Sunday … 6 = Saturday */
+  workDays: number[];
+  /** Where a workday's treatment route starts and ends by default */
+  workdayStart: 'home' | 'work';
+  workdayEnd: 'home' | 'work';
   lastBackupAt: string | null;
 }
 

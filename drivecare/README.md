@@ -160,6 +160,12 @@ The redirect URI must match exactly: scheme, domain and trailing slash. The exac
 5. The total distance and **estimated fuel expense** appear at the bottom. The expense uses your fuel records' cost per km, or shows *Unavailable* if there isn't enough fuel data.
 6. Tap **Save as treatment trips** to create one estimated trip per leg, linked to its appointments. If you later record an actual GPS or manual trip for the same leg and link it, the report uses the actual trip instead of the estimate.
 
+### Distances between appointments
+In **Treatments → Appointments**, a thin row between two appointments on the same day shows the driving distance from one to the next. Tap **Calculate km** to work out any legs that are still missing. Tap a distance to **adjust** it, or leave it blank to remove the adjustment. These adjustments are the same ones the route planner uses, so the two screens always agree. Adjusted legs show in orange, next to the original estimate.
+
+### Work schedule
+In **Settings → Work schedule**, choose the days you work and where those days start and end (Home or Work). New day routes on workdays use those places automatically. On a workday, the route planner also has a **Use work schedule** button.
+
 ### Recording a trip
 1. Mount the phone, open DriveCare, go to **Trips** and tap **Start Trip**. Keep the app open on screen.
 2. Tap **End Trip** when you arrive, then review the trip. Start and end are matched to saved places within 250 m. Confirm a suggested appointment link if one is offered.
