@@ -16,9 +16,9 @@ export const SOURCE_SHORT: Record<DistanceSource, string> = {
 };
 
 export const CATEGORY_LABEL: Record<TripCategory, string> = {
-  treatment: 'Treatment',
+  treatment: 'Appointment',
   personal: 'Personal',
-  work: 'Work',
+  work: 'Work / commute',
   other: 'Other',
 };
 

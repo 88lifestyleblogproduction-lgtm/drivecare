@@ -36,6 +36,21 @@ export interface ParsedAddress {
 const POSTAL_RE = /\b([ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z])\s?(\d[ABCEGHJ-NPRSTV-Z]\d)\b/i;
 const STREET_RE = /^\s*(?:(?:#|unit|suite|ste\.?)\s*[\w-]+\s*[-,]?\s*)?\d+[a-z]?(?:\s*-\s*\d+[a-z]?)?\s+\S+/i;
 const SUITE_RE = /^(suite|unit|ste\.?|#|floor|fl\.?|room|rm\.?)\b/i;
+/**
+ * "Alia Wellness Centre - 103-6588 Royal Oak Ave." → ["Alia Wellness Centre", "103-6588 Royal Oak Ave."]
+ * A spaced dash (or en/em dash) separates a name from a street, unless the left side is only a unit
+ * number such as "#310 - 1200 Burrard St".
+ */
+function splitNameFromStreet(part: string): string[] {
+  const m = part.match(/^(.*?\p{L}.*?)\s+[-–—]\s+(.+)$/u);
+  if (!m) return [part];
+  const left = m[1].trim();
+  const right = m[2].trim();
+  if (/^(#|unit|suite|ste\.?)?\s*[\w]*\d[\w]*$/i.test(left)) return [part];
+  if (!STREET_RE.test(right)) return [part];
+  return [left, right];
+}
+
 const PROVINCE_WORDS = Object.entries(PROVINCES)
   .flatMap(([c, n]) => [n, c])
   .sort((a, b) => b.length - a.length);
@@ -57,9 +72,10 @@ export function parseAddress(raw: string): ParsedAddress {
   }
 
   let parts = s
-    .split(/[,\n]/)
+    .split(/[,\n|;]/)
     .map((p) => p.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .flatMap(splitNameFromStreet);
 
   // Province: search from the end
   for (let i = parts.length - 1; i >= 0 && !out.province; i--) {

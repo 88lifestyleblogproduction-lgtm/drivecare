@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { cx, ToastProvider, useToast } from './components/ui';
-import { IconDashboard, IconFuel, IconReport, IconRoute, IconTreatment } from './components/Icons';
+import { IconCalendar, IconDashboard, IconFuel, IconReport, IconRoute } from './components/Icons';
 import { DataProvider, useData } from './lib/data';
 import { NavContext, type Nav, type Tab, type TreatmentView } from './lib/nav';
 import { consumeOAuthRedirect, listCalendars } from './lib/google';
@@ -24,7 +24,7 @@ const TABS: { id: Tab; label: string; icon: typeof IconDashboard }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: IconDashboard },
   { id: 'trips', label: 'Trips', icon: IconRoute },
   { id: 'fuel', label: 'Fuel', icon: IconFuel },
-  { id: 'treatments', label: 'Treatments', icon: IconTreatment },
+  { id: 'treatments', label: 'Schedule', icon: IconCalendar },
   { id: 'reports', label: 'Reports', icon: IconReport },
 ];
 

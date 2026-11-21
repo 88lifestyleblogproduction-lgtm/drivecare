@@ -35,10 +35,10 @@ export async function autoLocateAppointments(): Promise<number> {
     }
     let created = 0;
     for (const [key, a] of todo) {
-      if (await cacheGet<boolean>(`autoloc-fail:${key}`, 7 * 864e5)) continue;
+      if (await cacheGet<boolean>(`autoloc2-fail:${key}`, 7 * 864e5)) continue;
       const p = parseAddress(a.locationRaw);
       if (!p.street && !p.postalCode) {
-        await cacheSet(`autoloc-fail:${key}`, true);
+        await cacheSet(`autoloc2-fail:${key}`, true);
         continue;
       }
       let results;
@@ -49,7 +49,7 @@ export async function autoLocateAppointments(): Promise<number> {
       }
       const g = results.find((r) => !p.province || !r.province || r.province === p.province) ?? null;
       if (!g) {
-        await cacheSet(`autoloc-fail:${key}`, true);
+        await cacheSet(`autoloc2-fail:${key}`, true);
         continue;
       }
       const stamp = nowIso();

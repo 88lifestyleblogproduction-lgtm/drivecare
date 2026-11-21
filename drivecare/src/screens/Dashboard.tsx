@@ -101,7 +101,7 @@ export default function Dashboard() {
         <Stat
           icon={<IconTreatment size={16} />}
           tone="teal"
-          label="Treatment km"
+          label="Appointment km"
           value={fmtKm(treat.totals.totalKm)}
           sub={`${treat.totals.trips} linked trip${treat.totals.trips === 1 ? '' : 's'}`}
           onClick={() => nav.setTab('reports')}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Badge, Banner, Button, Card, Empty, Field, IconButton, List, NumberInput, Page, Row, Section, Segmented, Select, Sheet, Spinner, TextInput, Toggle, useToast } from '../components/ui';
-import { IconBack, IconChevron, IconDown, IconMap, IconPlus, IconRefresh, IconTrash, IconUp } from '../components/Icons';
+import { IconBack, IconChevron, IconGear, IconDown, IconMap, IconPlus, IconRefresh, IconTrash, IconUp } from '../components/Icons';
 import MapView, { type MapLine, type MapMarker } from '../components/MapView';
 import LocationEditor, { LocationSelect, type LocationDraft } from '../components/LocationEditor';
 import { useData } from '../lib/data';
@@ -8,14 +8,16 @@ import { useNav, type TreatmentView } from '../lib/nav';
 import { useCalendarSync } from '../lib/useSync';
 import { getToken } from '../lib/google';
 import { formatAddress, googleMapsUrl, locationTitle, normalizeKey, parseAddress, titleKey } from '../lib/address';
-import { categoryById, categoryLabel } from '../lib/settings';
+import { categoryById, categoryLabel, saveSettings } from '../lib/settings';
 import { clinicInfo, isActiveAppt } from '../lib/report';
-import { buildPoints, buildSegments, dayAppointments, defaultEnds, isWorkday, reconcilePlan, saveSegmentsAsTrips, type PlanPoint, type PlanSegment, type SegmentState } from '../lib/planner';
+import { buildPoints, buildSegments, dayAppointments, reconcilePlan, workdayStatus, workLocationOf, saveSegmentsAsTrips, type PlanPoint, type PlanSegment, type SegmentState } from '../lib/planner';
 import { pairsOf, useRouteResults } from '../lib/useRoutes';
+import { WorkCard } from '../components/WorkSettings';
 import { autoLocateAppointments } from '../lib/autoLocate';
 
 // Legs already tried automatically this session (avoids repeat requests after a failure)
 const autoTried = new Set<string>();
+const plannerTried = new Set<string>();
 const AUTO_LIMIT = 40;
 import { peekRoute, providerName, routeBetween } from '../lib/routing';
 import { computeFuelStats } from '../lib/fuel';
@@ -34,11 +36,20 @@ export default function TreatmentsScreen() {
   return (
     <Page
       title={settings.tabLabel}
+      onTitleClick={() => {
+        const name = prompt('Name for this tab (e.g. Schedule, Visits, Clients, Treatments)', settings.tabLabel);
+        if (name && name.trim()) void saveSettings({ tabLabel: name.trim().slice(0, 24), tabLabelCustom: true });
+      }}
       subtitle="Appointments, routes and places"
       right={
-        <IconButton label="Sync Google Calendar" onClick={() => void sync()}>
-          {syncing ? <Spinner /> : <IconRefresh />}
-        </IconButton>
+        <>
+          <IconButton label="Sync Google Calendar" onClick={() => void sync()}>
+            {syncing ? <Spinner /> : <IconRefresh />}
+          </IconButton>
+          <IconButton label="Settings" onClick={nav.openSettings}>
+            <IconGear />
+          </IconButton>
+        </>
       }
     >
       <Segmented<TreatmentView>
@@ -102,7 +113,7 @@ function SyncStatus() {
 /* ---------------- Appointments ---------------- */
 
 function Appointments() {
-  const { appointments, locations, settings, loaded, routePlans } = useData();
+  const { appointments, locations, settings, loaded, routePlans, trips } = useData();
   const nav = useNav();
   const toast = useToast();
   const [editLeg, setEditLeg] = useState<{ day: string; key: string } | null>(null);
@@ -133,13 +144,13 @@ function Appointments() {
     if (filter === 'address') return m;
     for (const day of dayKeys ? dayKeys.split(',') : []) {
       const dAppts = dayAppointments(appointments, day);
-      if (dAppts.length < 2) continue;
-      const plan = reconcilePlan(routePlans.find((p) => p.id === day), day, dAppts, settings, locations);
+      if (dAppts.length < 1) continue;
+      const plan = reconcilePlan(routePlans.find((p) => p.id === day), day, dAppts, settings, locations, trips);
       m.set(day, { plan, points: buildPoints(plan, apptMap, locMap, settings) });
     }
     return m;
-  }, [dayKeys, filter, appointments, routePlans, settings, locations, apptMap, locMap]);
-  const allPairs = useMemo(() => [...dayData.values()].flatMap((d) => pairsOf(d.points.filter((p) => p.role === 'stop'))), [dayData]);
+  }, [dayKeys, filter, appointments, routePlans, settings, locations, apptMap, locMap, trips]);
+  const allPairs = useMemo(() => [...dayData.values()].flatMap((d) => pairsOf(d.points)), [dayData]);
   const { results, calculate } = useRouteResults(allPairs, settings);
 
   // 1) Find map positions for calendar addresses automatically.
@@ -178,19 +189,24 @@ function Appointments() {
     toast(v == null ? 'Adjustment removed' : 'Distance adjusted');
   }
 
-  function legFor(day: string, a: Appointment, b: Appointment) {
-    const d = dayData.get(day);
-    if (!d) return null;
-    const pa = d.points.find((p) => p.appointments.some((x) => x.id === a.id));
-    if (pa && pa.appointments.some((x) => x.id === b.id)) return { same: true as const, plan: d.plan };
-    const segs = buildSegments(d.points, d.plan, results);
-    const seg = segs.find((s) => s.fromApptId === a.id && s.toApptId === b.id);
-    return seg ? { same: false as const, seg, plan: d.plan } : null;
-  }
+  const legProps = (day: string, plan: RoutePlan, seg: PlanSegment) => ({
+    seg,
+    editing: editLeg?.day === day && editLeg.key === seg.manualKey,
+    text: legText,
+    onText: setLegText,
+    onEdit: () => {
+      if (seg.kind === 'same') return;
+      setEditLeg({ day, key: seg.manualKey });
+      setLegText(seg.manualKm != null ? String(seg.manualKm) : seg.estKm != null ? seg.estKm.toFixed(1) : '');
+    },
+    onSave: () => void saveLeg(plan, seg.manualKey),
+    onCancel: () => setEditLeg(null),
+  });
 
   return (
     <>
       <SyncStatus />
+      <WorkCard />
       <div className="flex items-center gap-2">
         <div className="flex-1">
           <Segmented
@@ -214,66 +230,72 @@ function Appointments() {
         />
       )}
       {[...groups.entries()].map(([day, appts]) => {
-        const ordered = filter === 'past' ? [...appts].reverse() : appts;
         const d = dayData.get(day);
-        const stopPairs = d ? pairsOf(d.points.filter((p) => p.role === 'stop')) : [];
-        const pending = stopPairs.filter((p) => !results.get(p.key)?.result && !results.get(p.key)?.loading && !d!.plan.manualKm[p.key]);
-        const between = d ? buildSegments(d.points, d.plan, results).filter((s) => s.from.role === 'stop' && s.to.role === 'stop') : [];
-        const betweenKm = between.reduce((sum, s) => sum + (s.usedKm ?? 0), 0);
-        const incomplete = between.some((s) => s.usedKm == null);
+        const ordered = filter === 'past' ? [...appts].reverse() : appts;
+        if (!d) {
+          return (
+            <Section key={day} title={fmtKey(day)}>
+              <List>
+                {ordered.map((a) => (
+                  <ApptRow key={a.id} appt={a} loc={a.locationId ? locMap.get(a.locationId) : undefined} past={a.end < nowIsoStr} onClick={() => setOpenId(a.id)} />
+                ))}
+              </List>
+            </Section>
+          );
+        }
+        const segs = buildSegments(d.points, d.plan, results);
+        const pending = pairsOf(d.points).filter((p) => !results.get(p.key)?.result && !results.get(p.key)?.loading && d.plan.manualKm[p.key] == null);
+        const total = segs.reduce((sum, x) => sum + (x.usedKm ?? 0), 0);
+        const incomplete = segs.some((x) => x.usedKm == null);
+        const inPlan = new Set(d.points.flatMap((p) => p.appointments.map((a) => a.id)));
+        const others = ordered.filter((a) => !inPlan.has(a.id));
+        const ws = workdayStatus(day, d.plan, settings, trips, locations);
         return (
           <Section
             key={day}
-            title={fmtKey(day)}
+            title={
+              <span className="flex items-center gap-2">
+                {fmtKey(day)}
+                {ws.on && <Badge tone="orange">Workday</Badge>}
+              </span>
+            }
             action={
-              d ? (
-                <div className="flex items-center gap-1">
-                  {pending.length > 0 && (
-                    <Button
-                      small
-                      variant="plain"
-                      onClick={() =>
-                        void calculate(pending).then((f) => f && toast(`${f} distance${f > 1 ? 's' : ''} unavailable — tap to enter manually`, 'error'))
-                      }
-                    >
-                      Calculate km
-                    </Button>
-                  )}
-                  <Button small variant="plain" onClick={() => nav.openRouteFor(day)}>
-                    Route ›
+              <div className="flex items-center gap-1">
+                {pending.length > 0 && (
+                  <Button
+                    small
+                    variant="plain"
+                    onClick={() => void calculate(pending).then((f) => f && toast(`${f} distance${f > 1 ? 's' : ''} unavailable — tap to enter manually`, 'error'))}
+                  >
+                    Calculate km
                   </Button>
-                </div>
-              ) : undefined
+                )}
+                <Button small variant="plain" onClick={() => nav.openRouteFor(day)}>
+                  Route ›
+                </Button>
+              </div>
             }
-            footer={
-              between.length > 0 ? `Between appointments: ${incomplete ? `${fmtNum1(betweenKm)}+ km (some legs missing)` : fmtKm(betweenKm)}. Tap a distance to adjust it.` : undefined
-            }
+            footer={`Day total: ${incomplete ? `${fmtNum1(total)}+ km (some legs missing)` : fmtKm(total)}. Tap any distance to adjust it.`}
           >
             <List>
-              {ordered.map((a, i) => {
-                const next = ordered[i + 1];
-                const leg = next && isActiveAppt(a) && isActiveAppt(next) ? legFor(day, a, next) : null;
-                return (
-                  <div key={a.id}>
-                    <ApptRow appt={a} loc={a.locationId ? locMap.get(a.locationId) : undefined} past={a.end < nowIsoStr} onClick={() => setOpenId(a.id)} />
-                    {leg && (
-                      <LegRow
-                        leg={leg}
-                        editing={!leg.same && editLeg?.day === day && editLeg.key === leg.seg.manualKey}
-                        text={legText}
-                        onText={setLegText}
-                        onEdit={() => {
-                          if (leg.same) return;
-                          setEditLeg({ day, key: leg.seg.manualKey });
-                          setLegText(leg.seg.manualKm != null ? String(leg.seg.manualKm) : leg.seg.estKm != null ? leg.seg.estKm.toFixed(1) : '');
-                        }}
-                        onSave={() => !leg.same && void saveLeg(leg.plan, leg.seg.manualKey)}
-                        onCancel={() => setEditLeg(null)}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+              {d.points.map((p, i) => (
+                <div key={p.key + i}>
+                  {p.appointments.length ? (
+                    p.appointments.map((a, j) => (
+                      <div key={a.id}>
+                        {j > 0 && <SameRow />}
+                        <ApptRow appt={a} loc={a.locationId ? locMap.get(a.locationId) : undefined} past={a.end < nowIsoStr} onClick={() => setOpenId(a.id)} />
+                      </div>
+                    ))
+                  ) : (
+                    <PlaceRow point={p} />
+                  )}
+                  {segs[i] && <LegRow {...legProps(day, d.plan, segs[i])} />}
+                </div>
+              ))}
+              {others.map((a) => (
+                <ApptRow key={a.id} appt={a} loc={a.locationId ? locMap.get(a.locationId) : undefined} past={a.end < nowIsoStr} onClick={() => setOpenId(a.id)} />
+              ))}
             </List>
           </Section>
         );
@@ -284,8 +306,36 @@ function Appointments() {
   );
 }
 
+function SameRow() {
+  return (
+    <div className="flex items-center gap-2 bg-fill/50 px-4 py-1.5 text-[12px] text-muted">
+      <IconDown size={14} /> Same place · 0 km
+    </div>
+  );
+}
+
+function PlaceRow({ point }: { point: PlanPoint }) {
+  const icon = point.work ? '💼' : point.role === 'start' ? '🏠' : point.role === 'end' ? '🏁' : '📍';
+  const time = point.work
+    ? [point.arrive && `arrive ${fmtTime(point.arrive)}`, point.leave && `leave ${fmtTime(point.leave)}`].filter(Boolean).join(' · ')
+    : point.role === 'start'
+      ? 'Start of day'
+      : point.role === 'end'
+        ? 'End of day'
+        : 'Extra stop';
+  return (
+    <div className="flex min-h-[44px] items-center gap-3 px-4 py-2">
+      <span className="w-[74px] text-[18px]">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[15px] font-medium">{point.work ? `Work · ${point.label}` : point.label}</div>
+        <div className="text-[12px] text-muted">{time}</div>
+      </div>
+    </div>
+  );
+}
+
 function LegRow({
-  leg,
+  seg: s,
   editing,
   text,
   onText,
@@ -293,7 +343,7 @@ function LegRow({
   onSave,
   onCancel,
 }: {
-  leg: { same: true; plan: RoutePlan } | { same: false; seg: PlanSegment; plan: RoutePlan };
+  seg: PlanSegment;
   editing: boolean;
   text: string;
   onText: (v: string) => void;
@@ -301,14 +351,7 @@ function LegRow({
   onSave: () => void;
   onCancel: () => void;
 }) {
-  if (leg.same) {
-    return (
-      <div className="flex items-center gap-2 bg-fill/50 px-4 py-1.5 text-[12px] text-muted">
-        <IconDown size={14} /> Same place · 0 km
-      </div>
-    );
-  }
-  const s = leg.seg;
+  if (s.kind === 'same') return <SameRow />;
   const source =
     s.manualKm != null
       ? `Adjusted${s.estKm != null ? ` (estimate ${fmtKm(s.estKm)})` : ''}`
@@ -318,7 +361,7 @@ function LegRow({
           ? s.missingReason
           : s.error
             ? 'Routing unavailable'
-            : 'Not calculated yet';
+            : 'Calculating…';
   if (editing) {
     return (
       <div className="flex items-center gap-2 bg-accent/8 px-4 py-2">
@@ -350,8 +393,44 @@ function LegRow({
   );
 }
 
+/** Pick the nature of an appointment; you can also create a new type on the spot. */
+export function TypePicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { settings } = useData();
+  async function addType() {
+    const name = prompt('New type (e.g. Sales visit, Site inspection, Chiropractic)');
+    if (!name?.trim()) return;
+    const id = `custom-${uid().slice(0, 8)}`;
+    const palette = ['#5e5ce6', '#ff9f0a', '#30b0c7', '#ff375f', '#34c759', '#af52de'];
+    await saveSettings({
+      categories: [{ id, label: name.trim(), keywords: [], builtIn: false, color: palette[settings.categories.length % palette.length] }, ...settings.categories],
+    });
+    onChange(id);
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {settings.categories.map((c) => {
+        const on = c.id === value;
+        return (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => onChange(c.id)}
+            className={`rounded-full px-3 py-1.5 text-[13px] font-semibold transition ${on ? 'text-white shadow-sm' : 'bg-card text-ink surface'}`}
+            style={on ? { background: c.color } : undefined}
+          >
+            {c.label}
+          </button>
+        );
+      })}
+      <button type="button" onClick={() => void addType()} className="rounded-full border border-dashed border-accent px-3 py-1.5 text-[13px] font-semibold text-accent">
+        + New type
+      </button>
+    </div>
+  );
+}
+
 export function StatusBadge({ a }: { a: Appointment }) {
-  if (a.excluded) return <Badge>Not a treatment</Badge>;
+  if (a.excluded) return <Badge>Not tracked</Badge>;
   if (a.status === 'cancelled') return <Badge tone="red">Cancelled</Badge>;
   if (a.status === 'removed') return <Badge tone="red">Removed</Badge>;
   if (a.status === 'tentative') return <Badge tone="orange">Tentative</Badge>;
@@ -430,7 +509,7 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
 
   async function del() {
     if (!a) return;
-    if (!confirm(a.source === 'google' ? 'Remove this appointment from DriveCare? (It stays in Google Calendar; it will be re-imported on the next sync unless you mark it “Not a treatment”.)' : 'Delete this appointment?')) return;
+    if (!confirm(a.source === 'google' ? 'Remove this appointment from DriveCare? (It stays in Google Calendar; it will be re-imported on the next sync unless you turn on “Don’t track this appointment”.)' : 'Delete this appointment?')) return;
     await remove('appointments', a.id);
     toast('Appointment removed');
     onClose();
@@ -449,6 +528,10 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
         </div>
       </div>
 
+      <Section title="What is this appointment?" footer={a.categoryOverride ? 'Chosen by you — sync will keep it.' : 'Chosen automatically from the title. Tap another type to change it.'}>
+        <TypePicker value={a.categoryId} onChange={(id) => void update({ categoryId: id, categoryOverride: true })} />
+      </Section>
+
       <List>
         <Detail label="Date" value={fmtKey(dateKey(a.start))} />
         <Detail label="Time" value={a.allDay ? 'All day' : `${fmtTime(a.start)} – ${fmtTime(a.end)}`} />
@@ -458,7 +541,7 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
         <Detail label="City" value={loc ? loc.city : parsed.city} />
         <Detail label="Province" value={loc ? loc.province : parsed.province} />
         <Detail label="Postal code" value={loc ? loc.postalCode : parsed.postalCode} />
-        <Detail label="Status" value={a.excluded ? 'Not a treatment' : a.status[0].toUpperCase() + a.status.slice(1)} />
+        <Detail label="Status" value={a.excluded ? 'Not tracked' : a.status[0].toUpperCase() + a.status.slice(1)} />
         <Detail label="Source" value={a.source === 'google' ? `Google Calendar · ${a.calendarName}` : 'Added manually'} />
         {a.source === 'google' && <Detail label="Calendar location" value={a.locationRaw || 'None'} />}
         {a.matchedKeyword && <Detail label="Matched keyword" value={`“${a.matchedKeyword}”`} />}
@@ -511,12 +594,9 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
         </List>
       </Section>
 
-      <Section title="Classification">
+      <Section title="Tracking">
         <List>
-          <Field label="Treatment type">
-            <Select value={a.categoryId} onChange={(v) => void update({ categoryId: v, categoryOverride: true })} options={settings.categories.map((c) => ({ value: c.id, label: c.label }))} />
-          </Field>
-          <Toggle checked={a.excluded} onChange={(v) => void update({ excluded: v })} label="Not a treatment appointment" hint="Excluded from routes, statistics and reports. Sync will not re-add it." />
+          <Toggle checked={a.excluded} onChange={(v) => void update({ excluded: v })} label="Don't track this appointment" hint="Excluded from routes, statistics and reports. Sync will not re-add it." />
         </List>
       </Section>
 
@@ -636,7 +716,7 @@ function ManualAppointment({ open, onClose, settingsCats }: { open: boolean; onC
         <Field label="Title">
           <TextInput value={title} onChange={setTitle} placeholder="e.g. Physio with Dr. Lee" />
         </Field>
-        <Field label="Treatment type">
+        <Field label="Type">
           <Select value={cat} onChange={setCat} options={settingsCats.map((c) => ({ value: c.id, label: c.label }))} />
         </Field>
         <Field label="Starts">
@@ -671,7 +751,9 @@ function RoutePlanner() {
   const locMap = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
   const dayAppts = useMemo(() => dayAppointments(appointments, day), [appointments, day]);
   const stored = routePlans.find((p) => p.id === day);
-  const plan = useMemo(() => reconcilePlan(stored, day, dayAppts, settings, locations), [stored, day, dayAppts, settings, locations]);
+  const plan = useMemo(() => reconcilePlan(stored, day, dayAppts, settings, locations, trips), [stored, day, dayAppts, settings, locations, trips]);
+  const ws = workdayStatus(day, stored, settings, trips, locations);
+  const workLoc = workLocationOf(settings, locations);
   const points = useMemo(() => buildPoints(plan, apptMap, locMap, settings), [plan, apptMap, locMap, settings]);
   const segments = useMemo(() => buildSegments(points, plan, results), [points, plan, results]);
   const costPerKm = useMemo(() => computeFuelStats(fuel).costPerKm, [fuel]);
@@ -695,11 +777,11 @@ function RoutePlanner() {
   }, [pairSig]);
 
   // Calculate missing legs automatically when the day opens (once per leg per session).
-  const plannerPending = segments.filter((s) => s.kind === 'route' && s.pairKey && s.estKm == null && !s.loading && !s.error && !autoTried.has(s.pairKey));
+  const plannerPending = segments.filter((s) => s.kind === 'route' && s.pairKey && s.estKm == null && !s.loading && !s.error && !plannerTried.has(s.pairKey));
   const plannerSig = plannerPending.map((s) => s.pairKey).join('|');
   useEffect(() => {
-    if (!plannerPending.length || autoTried.size >= AUTO_LIMIT) return;
-    plannerPending.forEach((s) => autoTried.add(s.pairKey!));
+    if (!plannerPending.length || plannerTried.size >= AUTO_LIMIT) return;
+    plannerPending.forEach((s) => plannerTried.add(s.pairKey!));
     const t = setTimeout(() => void calculate(), 600); // let cached results load first
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -800,7 +882,7 @@ function RoutePlanner() {
           <IconBack size={18} />
         </IconButton>
         <div className="flex-1 text-center">
-          <div className="text-[17px] font-semibold">{fmtWeekday(day)} — Treatment Route</div>
+          <div className="text-[17px] font-semibold">{fmtWeekday(day)} — Route</div>
           <input type="date" value={day} onChange={(e) => e.target.value && nav.setRouteDate(e.target.value)} className="bg-transparent text-center text-[14px] text-accent outline-none" />
         </div>
         <IconButton label="Next day" onClick={() => nav.setRouteDate(addDays(day, 1))}>
@@ -816,21 +898,30 @@ function RoutePlanner() {
       )}
 
       <List>
-        {isWorkday(day, settings) && (
-          <div className="flex items-center justify-between px-4 pt-2.5 text-[13px]">
-            <Badge tone="blue">Workday</Badge>
-            <button
-              type="button"
-              className="font-semibold text-accent"
-              onClick={() => {
-                const d = defaultEnds(day, settings, locations);
-                void savePlan({ ...plan, startLocationId: d.start, endLocationId: d.end });
-              }}
-            >
-              Use work schedule
-            </button>
+        <div className="space-y-2 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] font-medium text-muted">Work today</span>
+            <span className="text-[12px] text-muted">
+              {ws.reason === 'schedule'
+                ? 'On your work schedule'
+                : ws.reason === 'detected'
+                  ? `Detected: arrived at work ${ws.trip?.endTime ? fmtTime(ws.trip.endTime) : ''}`
+                  : ws.reason === 'set-on' || ws.reason === 'set-off'
+                    ? 'Set by you'
+                    : 'Not a workday'}
+            </span>
           </div>
-        )}
+          <Segmented<'auto' | 'on' | 'off'>
+            value={stored?.workday === true ? 'on' : stored?.workday === false ? 'off' : 'auto'}
+            onChange={(v) => void savePlan({ ...plan, workday: v === 'auto' ? null : v === 'on' })}
+            options={[
+              { value: 'auto', label: `Auto (${ws.reason === 'set-on' || ws.reason === 'set-off' ? '—' : ws.on ? 'working' : 'off'})` },
+              { value: 'on', label: 'Working' },
+              { value: 'off', label: 'Not working' },
+            ]}
+          />
+          {!workLoc && ws.on && <div className="text-[12px] text-warn">Add a work address (Work card on the Appointments page) so work can be added to the route.</div>}
+        </div>
         <Field label="Start from" hint={!plan.startLocationId ? 'Set your Home in Places → add a place of type Home.' : undefined}>
           <LocationSelect value={plan.startLocationId} onChange={(id) => void savePlan({ ...plan, startLocationId: id })} locations={locations} noneLabel="Choose…" />
         </Field>
@@ -862,6 +953,10 @@ function RoutePlanner() {
                         <>
                           {fmtTime(a.start)} — {categoryLabel(settings, a.categoryId)}
                         </>
+                      ) : s.workRole ? (
+                        <>
+                          {s.time ? fmtTime(s.time) : ''} — {s.workRole === 'work-start' ? 'Arrive at work' : 'Leave work'}
+                        </>
                       ) : (
                         <>Stop — {l ? locationTitle(l) : 'Removed place'}</>
                       )}
@@ -877,7 +972,7 @@ function RoutePlanner() {
                     <IconButton label="Move down" onClick={() => moveStop(i, 1)} className="h-8 w-8">
                       <IconDown size={16} />
                     </IconButton>
-                    {s.type === 'appointment' ? (
+                    {s.type === 'appointment' || s.workRole ? (
                       <button type="button" className="w-16 text-[13px] font-semibold text-accent" onClick={() => toggleStop(i)}>
                         {s.excluded ? 'Include' : 'Skip'}
                       </button>

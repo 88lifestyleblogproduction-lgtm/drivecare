@@ -95,6 +95,13 @@ export const DEFAULT_CATEGORIES: CategoryDef[] = [
     color: '#ffd60a',
   },
   {
+    id: 'meeting',
+    label: 'Client meeting / site visit',
+    keywords: [],
+    builtIn: true,
+    color: '#0a84ff',
+  },
+  {
     id: 'general',
     label: 'Other appointment / visit',
     keywords: [],
@@ -126,8 +133,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   workDays: [],
   workdayStart: 'work',
   workdayEnd: 'home',
-  tabLabel: 'Treatments',
-  reportTitle: 'Treatment Travel Report',
+  tabLabel: 'Schedule',
+  reportTitle: 'Travel & Mileage Report',
+  workStartTime: '09:00',
+  workEndTime: '17:00',
+  tabLabelCustom: false,
+  reportTitleCustom: false,
   reimburseRate: null,
   importAllWithLocation: false,
   lastBackupAt: null,
@@ -137,8 +148,10 @@ export function withDefaults(s: Partial<AppSettings> | undefined): AppSettings {
   const merged: AppSettings = { ...DEFAULT_SETTINGS, ...(s ?? {}), id: 'app' };
   if (!Array.isArray(merged.categories) || merged.categories.length === 0) merged.categories = DEFAULT_CATEGORIES;
   else merged.categories = orderBuiltIns(addMissingDefaults(merged.categories));
-  if (!merged.tabLabel?.trim()) merged.tabLabel = DEFAULT_SETTINGS.tabLabel;
-  if (!merged.reportTitle?.trim()) merged.reportTitle = DEFAULT_SETTINGS.reportTitle;
+  if (!merged.tabLabelCustom || !merged.tabLabel?.trim()) merged.tabLabel = DEFAULT_SETTINGS.tabLabel;
+  if (!merged.reportTitleCustom || !merged.reportTitle?.trim()) merged.reportTitle = DEFAULT_SETTINGS.reportTitle;
+  if (!/^\d{2}:\d{2}$/.test(merged.workStartTime)) merged.workStartTime = DEFAULT_SETTINGS.workStartTime;
+  if (!/^\d{2}:\d{2}$/.test(merged.workEndTime)) merged.workEndTime = DEFAULT_SETTINGS.workEndTime;
   if (!Array.isArray(merged.workDays)) merged.workDays = [];
   return merged;
 }

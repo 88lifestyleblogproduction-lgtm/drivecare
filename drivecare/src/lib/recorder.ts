@@ -181,12 +181,18 @@ class Recorder {
       const near = nearestLocation({ lat: p[0], lng: p[1] }, locations, 250);
       return { label: near ? locationTitle(near) : `${p[0].toFixed(4)}, ${p[1].toFixed(4)}`, locationId: near?.id ?? null, lat: p[0], lng: p[1] };
     };
+    const startPt = label(first);
+    const endPt = label(lastP);
+    const kindOf = (id: string | null) => (id ? locations.find((l) => l.id === id)?.kind : undefined);
+    // Trips to or from your workplace are marked as work/commute automatically; you can change it.
+    const atWork = kindOf(startPt.locationId) === 'work' || kindOf(endPt.locationId) === 'work';
     const done: Trip = {
       ...trip,
       recording: false,
       endTime: new Date().toISOString(),
-      start: label(first),
-      end: label(lastP),
+      start: startPt,
+      end: endPt,
+      category: atWork ? 'work' : trip.category,
       gpsKm: Math.round((trip.gpsKm ?? 0) * 100) / 100,
       distanceSource: 'gps',
       updatedAt: new Date().toISOString(),

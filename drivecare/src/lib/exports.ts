@@ -12,9 +12,9 @@ export function reportCsv(r: TreatmentReport): Blob {
   const header = [
     'Appointment date',
     'Appointment time',
-    'Treatment type',
-    'Clinic name',
-    'Clinic address',
+    'Appointment type',
+    'Place / provider',
+    'Address',
     'Address confirmed',
     'Trip start',
     'Trip destination',
@@ -121,7 +121,7 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
     });
   const lastY = () => (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? cursorY;
 
-  const cat = r.filter.categoryId === 'all' ? 'All treatment types' : categoryLabel(settings, r.filter.categoryId);
+  const cat = r.filter.categoryId === 'all' ? 'All appointment types' : categoryLabel(settings, r.filter.categoryId);
   const clinic = r.filter.locationId === 'all' ? 'All clinics' : locations.find((l) => l.id === r.filter.locationId)?.name ?? 'Selected clinic';
 
   doc.setFont('helvetica', 'bold');
@@ -144,12 +144,12 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
     headStyles: { fillColor: blue },
     head: [['Summary', 'Value']],
     body: [
-      ['Treatment appointments', String(r.totals.appointments)],
+      ['Appointments', String(r.totals.appointments)],
       ['Associated driving trips', String(r.totals.trips)],
-      ['Outbound kilometres (to treatment)', `${r.totals.outboundKm.toFixed(1)} km`],
-      ['Between-treatment kilometres', `${r.totals.betweenKm.toFixed(1)} km`],
+      ['Outbound kilometres (to appointments)', `${r.totals.outboundKm.toFixed(1)} km`],
+      ['Between-appointment kilometres', `${r.totals.betweenKm.toFixed(1)} km`],
       ['Return kilometres', `${r.totals.returnKm.toFixed(1)} km`],
-      ['Total treatment-related kilometres', `${r.totals.totalKm.toFixed(1)} km`],
+      ['Total appointment-related kilometres', `${r.totals.totalKm.toFixed(1)} km`],
       ['Fuel cost per kilometre', cpkText],
       ['Estimated fuel cost', r.totals.estCost == null ? 'Unavailable (no reliable fuel cost per km)' : `CAD $${r.totals.estCost.toFixed(2)}`],
       ...(r.reimburseRate != null && r.totals.reimbursement != null
@@ -169,7 +169,7 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
     theme: 'striped',
     styles: { fontSize: 8, cellPadding: 4 },
     headStyles: { fillColor: blue },
-    head: [['By treatment type', 'Appts', 'Trips', 'km', 'Est. CAD']],
+    head: [['By appointment type', 'Appts', 'Trips', 'km', 'Est. CAD']],
     body: r.byCategory.map((b) => [pdfText(b.label), b.appts, b.trips, b.km.toFixed(1), money(b.cost) || '-']),
   });
   const yA = lastY();
@@ -179,7 +179,7 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
     theme: 'striped',
     styles: { fontSize: 8, cellPadding: 4 },
     headStyles: { fillColor: blue },
-    head: [['By clinic / provider', 'Appts', 'Trips', 'km', 'Est. CAD']],
+    head: [['By place / provider', 'Appts', 'Trips', 'km', 'Est. CAD']],
     body: r.byClinic.map((b) => [pdfText(b.label), b.appts, b.trips, b.km.toFixed(1), money(b.cost) || '-']),
   });
   const yB = lastY();
@@ -206,7 +206,7 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
     theme: 'grid',
     styles: { fontSize: 7.5, cellPadding: 3.5, overflow: 'linebreak', valign: 'top' },
     headStyles: { fillColor: blue, fontSize: 7.5 },
-    head: [['Date', 'Appointment', 'Treatment', 'Clinic and address', 'From', 'To', 'Leg', 'km', 'Measured by', 'Est. CAD']],
+    head: [['Date', 'Appointment', 'Type', 'Place and address', 'From', 'To', 'Leg', 'km', 'Measured by', 'Est. CAD']],
     body: r.rows.map((x) =>
       [
         x.date,

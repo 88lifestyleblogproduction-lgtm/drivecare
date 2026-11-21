@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import LocationEditor, { type LocationDraft } from '../components/LocationEditor';
+import { useEffect, useState } from 'react';
+import { WorkCard } from '../components/WorkSettings';
 import { NumberInput } from '../components/ui';
 import { Badge, Banner, Button, Field, List, Row, Section, Select, Sheet, Spinner, TextInput, Toggle, useToast } from '../components/ui';
 import { useData } from '../lib/data';
@@ -18,7 +18,9 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
     <Sheet open={open} onClose={onClose} title="Settings" closeLabel="Done">
       <GoogleSection />
       <AppSection />
-      <WorkSection />
+      <Section title="Work">
+        <WorkCard />
+      </Section>
       <KeywordSection />
       <RoutingSection />
       <TripSection />
@@ -187,7 +189,7 @@ function AppSection() {
   async function save() {
     const r = rate.trim() ? Number(rate) : null;
     if (r != null && (!Number.isFinite(r) || r < 0 || r > 5)) return toast('Enter a rate in dollars per km, e.g. 0.70', 'error');
-    await saveSettings({ tabLabel: tab.trim() || 'Treatments', reportTitle: title.trim() || 'Treatment Travel Report', reimburseRate: r });
+    await saveSettings({ tabLabel: tab.trim() || 'Schedule', reportTitle: title.trim() || 'Travel & Mileage Report', reimburseRate: r, tabLabelCustom: true, reportTitleCustom: true });
     toast('Saved');
   }
 
@@ -240,63 +242,6 @@ function AppSection() {
   );
 }
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function WorkSection() {
-  const { settings, locations } = useData();
-  const [editWork, setEditWork] = useState(false);
-  const work = settings.workLocationId ? locations.find((l) => l.id === settings.workLocationId) : locations.find((l) => l.kind === 'work');
-  const home = settings.homeLocationId ? locations.find((l) => l.id === settings.homeLocationId) : locations.find((l) => l.kind === 'home');
-  const workDraft = useMemo<LocationDraft>(() => (work ? { id: work.id } : { kind: 'work', name: 'Work' }), [work]);
-  const toggle = (d: number) =>
-    void saveSettings({ workDays: settings.workDays.includes(d) ? settings.workDays.filter((x) => x !== d) : [...settings.workDays, d].sort() });
-  const placeOpts = (cur: 'home' | 'work') => [
-    { value: 'home', label: `Home${home ? ` · ${home.name || home.street}` : ' (not set)'}` },
-    { value: 'work', label: `Work${work ? ` · ${work.name || work.street}` : ' (not set)'}` },
-  ].filter((o) => o.value === cur || o.value === 'home' || o.value === 'work');
-  return (
-    <Section
-      title="Work schedule"
-      footer="On the days you work, new day routes start and end at the places chosen here, so you don't have to set them each time. You can still change any day in the route planner. Set your Work address in Treatments → Places."
-    >
-      <List>
-        <div className="px-4 py-3">
-          <div className="mb-2 text-[13px] font-medium text-muted">Days I go to work</div>
-          <div className="flex gap-1.5">
-            {DAYS.map((label, d) => {
-              const on = settings.workDays.includes(d);
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => toggle(d)}
-                  aria-pressed={on}
-                  className={`h-10 flex-1 rounded-xl text-[13px] font-semibold transition ${on ? 'bg-accent text-white' : 'bg-fill text-muted'}`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <Field label="On workdays, start from">
-          <Select value={settings.workdayStart} onChange={(v) => void saveSettings({ workdayStart: v as 'home' | 'work' })} options={placeOpts(settings.workdayStart)} />
-        </Field>
-        <Field label="On workdays, end at">
-          <Select value={settings.workdayEnd} onChange={(v) => void saveSettings({ workdayEnd: v as 'home' | 'work' })} options={placeOpts(settings.workdayEnd)} />
-        </Field>
-        <div className="px-4 py-3">
-          <Button small variant={work ? 'secondary' : 'primary'} onClick={() => setEditWork(true)}>
-            {work ? `Edit work address (${work.name || work.street})` : 'Add work address'}
-          </Button>
-          {!work && <div className="mt-1.5 text-[12px] text-warn">No work address yet — workdays use Home until you add one.</div>}
-        </div>
-      </List>
-      <LocationEditor open={editWork} draft={workDraft} onClose={() => setEditWork(false)} />
-    </Section>
-  );
-}
-
 function KeywordSection() {
   const { settings } = useData();
   const toast = useToast();
@@ -320,7 +265,7 @@ function KeywordSection() {
   }
 
   async function addCategory() {
-    const name = prompt('Name for the new treatment type (e.g. Chiropractic)');
+    const name = prompt('Name for the new appointment type (e.g. Chiropractic, Sales visit)');
     if (!name?.trim()) return;
     const cat: CategoryDef = { id: `custom-${uid().slice(0, 8)}`, label: name.trim(), keywords: [name.trim().toLowerCase()], builtIn: false, color: '#5e5ce6' };
     await saveSettings({ categories: [cat, ...settings.categories] });
@@ -332,7 +277,7 @@ function KeywordSection() {
   }
 
   async function reset() {
-    if (!confirm('Reset built-in keywords to defaults? Custom treatment types are kept.')) return;
+    if (!confirm('Reset built-in keywords to defaults? Custom types are kept.')) return;
     await saveSettings({ categories: [...settings.categories.filter((c) => !c.builtIn), ...DEFAULT_CATEGORIES] });
   }
 

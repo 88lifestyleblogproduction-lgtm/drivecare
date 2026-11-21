@@ -109,8 +109,8 @@ function TreatmentReportView() {
             </Button>
           ))}
         </div>
-        <Field label="Treatment type">
-          <Select value={filter.categoryId} onChange={(v) => set({ categoryId: v })} options={[{ value: 'all', label: 'All treatment appointments' }, ...settings.categories.map((c) => ({ value: c.id, label: c.label }))]} />
+        <Field label="Appointment type">
+          <Select value={filter.categoryId} onChange={(v) => set({ categoryId: v })} options={[{ value: 'all', label: 'All appointment types' }, ...settings.categories.map((c) => ({ value: c.id, label: c.label }))]} />
         </Field>
         <Field label="Clinic / place">
           <Select value={filter.locationId} onChange={(v) => set({ locationId: v })} options={[{ value: 'all', label: 'All places' }, ...clinics.map((l) => ({ value: l.id, label: locationTitle(l) }))]} />
@@ -120,7 +120,7 @@ function TreatmentReportView() {
       {filter.startKey > filter.endKey && <Banner tone="error">The start date is after the end date.</Banner>}
 
       <div className="grid grid-cols-2 gap-3">
-        <Stat icon={<IconTreatment size={16} />} tone="teal" label="Treatment km" value={fmtKm(t.totalKm)} sub={`Out ${fmtKm(t.outboundKm)} · Between ${fmtKm(t.betweenKm)} · Return ${fmtKm(t.returnKm)}`} />
+        <Stat icon={<IconTreatment size={16} />} tone="teal" label="Appointment km" value={fmtKm(t.totalKm)} sub={`Out ${fmtKm(t.outboundKm)} · Between ${fmtKm(t.betweenKm)} · Return ${fmtKm(t.returnKm)}`} />
         <Stat icon={<IconFuel size={16} />} tone="orange" label="Est. fuel cost" value={t.estCost != null ? fmtCAD(t.estCost) : <span className="text-[17px] text-muted">Unavailable</span>} badge={<BasisBadge basis={costPerKm.basis === 'unavailable' ? 'unavailable' : 'estimate'} />} sub={costPerKm.value != null ? `At ${fmtPerKm(costPerKm.value)}` : costPerKm.detail} />
         <Stat icon={<IconCalendar size={16} />} tone="purple" label="Appointments" value={String(t.appointments)} sub={`${report.apptsWithoutTravel.length} without recorded travel`} />
         <Stat icon={<IconRoute size={16} />} tone="blue" label="Associated trips" value={String(t.trips)} sub={t.costPerTrip != null ? `≈ ${fmtCAD(t.costPerTrip)} per trip` : t.tripsMissingDistance ? `${t.tripsMissingDistance} without distance` : 'Cost per trip unavailable'} />
@@ -152,7 +152,7 @@ function TreatmentReportView() {
       </div>
 
       {report.byCategory.length > 0 && (
-        <Section title="By treatment type">
+        <Section title="By appointment type">
           <List>
             {report.byCategory.map((b) => (
               <Row key={b.key} title={b.label} subtitle={`${b.appts} appointments · ${b.trips} trips${b.cost != null ? ` · ${fmtCAD(b.cost)}` : ''}`} detail={fmtKm(b.km)} />
@@ -161,7 +161,7 @@ function TreatmentReportView() {
         </Section>
       )}
       {report.byClinic.length > 0 && (
-        <Section title="By clinic / provider">
+        <Section title="By place / provider">
           <List>
             {report.byClinic.map((b) => (
               <Row key={b.key} title={b.label} subtitle={`${b.appts} appointments · ${b.trips} trips`} detail={fmtKm(b.km)} />

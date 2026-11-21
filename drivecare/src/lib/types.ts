@@ -132,6 +132,10 @@ export interface PlanStop {
   appointmentId: ID | null;
   locationId: ID | null;
   excluded: boolean;
+  /** Work-day stops added automatically from your work hours */
+  workRole?: 'work-start' | 'work-end';
+  /** Scheduled time for work stops (ISO) */
+  time?: string;
 }
 
 export interface RoutePlan {
@@ -142,6 +146,8 @@ export interface RoutePlan {
   stops: PlanStop[];
   /** Manual km overrides keyed by `${fromLocationId}>${toLocationId}` */
   manualKm: Record<string, number>;
+  /** null/undefined = automatic (schedule or detected trip to work); true/false = set by you */
+  workday?: boolean | null;
   updatedAt: string;
 }
 
@@ -175,6 +181,11 @@ export interface AppSettings {
   /** Where a workday's treatment route starts and ends by default */
   workdayStart: 'home' | 'work';
   workdayEnd: 'home' | 'work';
+  /** Work hours, "HH:mm" in Vancouver time */
+  workStartTime: string;
+  workEndTime: string;
+  tabLabelCustom: boolean;
+  reportTitleCustom: boolean;
   /** Name of the appointments tab (e.g. "Treatments", "Visits", "Clients") */
   tabLabel: string;
   /** Title printed on PDF/CSV reports */
