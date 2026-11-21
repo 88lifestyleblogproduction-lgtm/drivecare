@@ -185,6 +185,12 @@ export interface AppSettings {
   workStartTime: string;
   workEndTime: string;
   tabLabelCustom: boolean;
+  /** Sync records between devices through your Google Drive (hidden app folder) */
+  cloudSyncEnabled: boolean;
+  lastCloudSync: string | null;
+  lastCloudError: string | null;
+  /** When settings that sync between devices last changed */
+  prefsUpdatedAt: string;
   reportTitleCustom: boolean;
   /** Name of the appointments tab (e.g. "Treatments", "Visits", "Clients") */
   tabLabel: string;
@@ -194,6 +200,8 @@ export interface AppSettings {
   reimburseRate: number | null;
   /** Also import calendar events that have a location but match no keyword (business use) */
   importAllWithLocation: boolean;
+  /** Which calendar events to import: every timed event, only events with a location, or only keyword matches */
+  importMode: 'all' | 'location' | 'keywords';
   lastBackupAt: string | null;
 }
 

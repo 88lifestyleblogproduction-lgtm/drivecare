@@ -5,7 +5,9 @@ import { Badge, Banner, Button, Field, List, Row, Section, Select, Sheet, Spinne
 import { useData } from '../lib/data';
 import { DEFAULT_CATEGORIES, effectiveClientId, saveSettings } from '../lib/settings';
 import { getToken, listCalendars, redirectUri, revokeGoogle, startGoogleAuth, tokenMinutesLeft, AuthRequiredError } from '../lib/google';
-import { useCalendarSync } from '../lib/useSync';
+import { extraScopes, useCalendarSync } from '../lib/useSync';
+import { deleteCloudCopy } from '../lib/cloud';
+import { DRIVE_SCOPE, hasScope } from '../lib/google';
 import { clearAll, clearStore, getAll, removeMany } from '../lib/db';
 import { createBackup, restoreBackup } from '../lib/backup';
 import { saveFile } from '../lib/files';
@@ -17,6 +19,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
   return (
     <Sheet open={open} onClose={onClose} title="Settings" closeLabel="Done">
       <GoogleSection />
+      <DevicesSection />
       <AppSection />
       <Section title="Work">
         <WorkCard />
@@ -62,7 +65,7 @@ function GoogleSection() {
         selectedCalendars: settings.selectedCalendars.length ? settings.selectedCalendars : cals.filter((c) => c.primary).map((c) => ({ id: c.id, name: c.name })),
       });
     } catch (e) {
-      if (e instanceof AuthRequiredError) startGoogleAuth(cid, 'connect');
+      if (e instanceof AuthRequiredError) startGoogleAuth(cid, 'connect', extraScopes(settings));
       else toast(errMsg(e), 'error');
     } finally {
       setLoadingCals(false);
@@ -126,7 +129,7 @@ function GoogleSection() {
         />
       </List>
       <div className="mt-2 flex flex-wrap gap-2">
-        <Button small onClick={() => (cid ? startGoogleAuth(cid, 'connect') : toast('Save your Client ID first.', 'error'))}>
+        <Button small onClick={() => (cid ? startGoogleAuth(cid, 'connect', extraScopes(settings)) : toast('Save your Client ID first.', 'error'))}>
           {settings.googleConnected ? 'Reconnect' : 'Connect Google Calendar'}
         </Button>
         {token && (
@@ -141,9 +144,28 @@ function GoogleSection() {
         )}
       </div>
 
+      <List className="mt-3">
+        <Field label="Which events to import" hint="“All” imports every event with a start time from the calendars below. All-day events are skipped unless a keyword matches.">
+          <Select
+            value={settings.importMode}
+            onChange={(v) => void saveSettings({ importMode: v as 'all' | 'location' | 'keywords' })}
+            options={[
+              { value: 'all', label: 'All appointments (recommended)' },
+              { value: 'location', label: 'Only events with a location' },
+              { value: 'keywords', label: 'Only events matching keywords' },
+            ]}
+          />
+        </Field>
+      </List>
+
       {settings.availableCalendars.length > 0 && (
         <List className="mt-3">
-          <div className="px-4 pt-2.5 text-[13px] font-medium text-muted">Calendars to read</div>
+          <div className="flex items-center justify-between px-4 pt-2.5">
+            <span className="text-[13px] font-medium text-muted">Calendars to read</span>
+            <button type="button" className="text-[13px] font-semibold text-accent" onClick={() => void saveSettings({ selectedCalendars: settings.availableCalendars })}>
+              Select all
+            </button>
+          </div>
           {settings.availableCalendars.map((c) => (
             <Toggle key={c.id} checked={settings.selectedCalendars.some((s) => s.id === c.id)} onChange={(v) => void toggleCal(c.id, c.name, v)} label={c.name} />
           ))}
@@ -206,7 +228,7 @@ function AppSection() {
   return (
     <Section
       title="App & reports"
-      footer="For work mileage (e.g. sales visits): use the Business preset, enter your employer's reimbursement rate, and turn on importing other events with a location. Ask your employer which rate applies; DriveCare does not decide eligibility."
+      footer="For work mileage (e.g. sales visits): use the Business preset, enter your employer's reimbursement rate, and keep “Which events to import” on All (Settings → Google Calendar). Ask your employer which rate applies; DriveCare does not decide eligibility."
     >
       <List>
         <div className="flex gap-2 px-4 py-3">
@@ -231,12 +253,63 @@ function AppSection() {
             Save
           </Button>
         </div>
+
+      </List>
+    </Section>
+  );
+}
+
+function DevicesSection() {
+  const { settings } = useData();
+  const toast = useToast();
+  const { sync, syncing } = useCalendarSync();
+  const signedIn = hasScope(DRIVE_SCOPE);
+  async function removeCloud() {
+    if (!confirm('Delete the DriveCare copy stored in your Google Drive? Records on this device are kept. Other devices will stop receiving updates until you sync again.')) return;
+    try {
+      await deleteCloudCopy();
+      toast('Cloud copy deleted');
+    } catch (e) {
+      toast(errMsg(e), 'error');
+    }
+  }
+  return (
+    <Section
+      title="Sync between devices"
+      footer="Uses a hidden DriveCare-only folder in your own Google Drive (permission: drive.appdata — DriveCare cannot see your other Drive files). Sign in with the same Gmail on your phone and computer and tap Sync; records, places and settings are merged, newest change wins. Deleting a record on one device deletes it on the others. Google tokens and API keys are never uploaded."
+    >
+      <List>
         <Toggle
-          checked={settings.importAllWithLocation}
-          onChange={(v) => void saveSettings({ importAllWithLocation: v })}
-          label="Also import other events that have a location"
-          hint="Off: only events matching the keywords below. On: client visits, meetings etc. with an address are imported as “Other appointment / visit”. Sync again after changing."
+          checked={settings.cloudSyncEnabled}
+          onChange={(v) => void saveSettings({ cloudSyncEnabled: v })}
+          label="Use the same data on all my devices"
+          hint="Needs the Google Drive API enabled in your Google Cloud project (see README)."
         />
+        {settings.cloudSyncEnabled && (
+          <>
+            <Row
+              title="Status"
+              subtitle={settings.lastCloudError ? <span className="text-bad">{settings.lastCloudError}</span> : undefined}
+              detail={
+                settings.lastCloudSync ? (
+                  <span className="text-[13px]">Synced {fmtDateTime(settings.lastCloudSync)}</span>
+                ) : (
+                  <span className="text-[13px] text-warn">Not synced yet</span>
+                )
+              }
+            />
+            <div className="flex flex-wrap gap-2 px-4 py-3">
+              <Button small onClick={() => void sync()} disabled={syncing}>
+                {syncing ? <Spinner size={14} /> : null} {signedIn ? 'Sync now' : 'Sign in with Google & sync'}
+              </Button>
+              {signedIn && (
+                <Button small variant="danger" onClick={() => void removeCloud()}>
+                  Delete cloud copy
+                </Button>
+              )}
+            </div>
+          </>
+        )}
       </List>
     </Section>
   );

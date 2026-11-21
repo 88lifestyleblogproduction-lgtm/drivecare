@@ -3,7 +3,9 @@ import { cx, ToastProvider, useToast } from './components/ui';
 import { IconCalendar, IconDashboard, IconFuel, IconReport, IconRoute } from './components/Icons';
 import { DataProvider, useData } from './lib/data';
 import { NavContext, type Nav, type Tab, type TreatmentView } from './lib/nav';
-import { consumeOAuthRedirect, listCalendars } from './lib/google';
+import { consumeOAuthRedirect, DRIVE_SCOPE, getToken, hasScope, listCalendars } from './lib/google';
+import { cloudQuietUntil, cloudRunning, cloudSync } from './lib/cloud';
+import { subscribe, SYNC_STORES } from './lib/db';
 import { loadSettings, saveSettings } from './lib/settings';
 import { reclassifyStored, syncCalendars } from './lib/sync';
 import { recorder } from './lib/recorder';
@@ -116,7 +118,7 @@ function Shell() {
       }
       try {
         const s = await loadSettings();
-        if (oauthResult.intent === 'connect' || !s.selectedCalendars.length) {
+        if (oauthResult.intent === 'connect' || (!s.selectedCalendars.length && !s.cloudSyncEnabled)) {
           const cals = await listCalendars();
           await saveSettings({
             googleConnected: true,
@@ -130,8 +132,18 @@ function Shell() {
             return;
           }
         }
-        const r = await syncCalendars();
-        toast(`Synced · ${r.added} new, ${r.updated} updated, ${r.cancelled} cancelled, ${r.removed} removed`);
+        const s2 = await loadSettings();
+        if (s2.selectedCalendars.length) {
+          const r = await syncCalendars();
+          toast(`Synced · ${r.added} new, ${r.updated} updated, ${r.cancelled} cancelled, ${r.removed} removed`);
+        }
+        if (s2.cloudSyncEnabled) {
+          if (!hasScope(DRIVE_SCOPE)) toast('Google Drive permission was not granted, so devices were not synced.', 'error');
+          else {
+            const c = await cloudSync();
+            toast(`Devices synced${c.downloaded ? ` · ${c.downloaded} updates received` : ''}`);
+          }
+        }
       } catch (e) {
         toast(errMsg(e), 'error');
       }
@@ -146,6 +158,49 @@ function Shell() {
     void reclassifyStored(settings.categories).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catSig, loaded]);
+
+  // While signed in, keep other devices up to date automatically (a few seconds after changes,
+  // and when the app comes back to the foreground).
+  useEffect(() => {
+    if (!settings.cloudSyncEnabled) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = (delay: number) => {
+      if (!hasScope(DRIVE_SCOPE)) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (cloudRunning() || !hasScope(DRIVE_SCOPE)) return;
+        void cloudSync().catch(() => undefined);
+      }, delay);
+    };
+    const onChange = () => {
+      if (Date.now() < cloudQuietUntil || cloudRunning()) return;
+      schedule(8000);
+    };
+    const offs = SYNC_STORES.map((st) => subscribe(st, onChange));
+    const onVisible = () => document.visibilityState === 'visible' && schedule(500);
+    document.addEventListener('visibilitychange', onVisible);
+    schedule(1500);
+    return () => {
+      offs.forEach((f) => f());
+      document.removeEventListener('visibilitychange', onVisible);
+      if (timer) clearTimeout(timer);
+    };
+  }, [settings.cloudSyncEnabled]);
+
+  // While signed in, read Google Calendar automatically when the app opens or returns to the
+  // foreground (at most every 5 minutes). Without a valid sign-in, tap Sync.
+  useEffect(() => {
+    if (!loaded || !settings.selectedCalendars.length) return;
+    let last = 0;
+    const run = () => {
+      if (document.visibilityState !== 'visible' || !getToken() || Date.now() - last < 5 * 60000) return;
+      last = Date.now();
+      void syncCalendars().catch(() => undefined);
+    };
+    run();
+    document.addEventListener('visibilitychange', run);
+    return () => document.removeEventListener('visibilitychange', run);
+  }, [loaded, settings.selectedCalendars.length]);
 
   // Keep the recorder's accuracy setting current
   useEffect(() => {

@@ -138,9 +138,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   workStartTime: '09:00',
   workEndTime: '17:00',
   tabLabelCustom: false,
+  cloudSyncEnabled: false,
+  lastCloudSync: null,
+  lastCloudError: null,
+  prefsUpdatedAt: '',
   reportTitleCustom: false,
   reimburseRate: null,
   importAllWithLocation: false,
+  importMode: 'all',
   lastBackupAt: null,
 };
 
@@ -153,6 +158,7 @@ export function withDefaults(s: Partial<AppSettings> | undefined): AppSettings {
   if (!/^\d{2}:\d{2}$/.test(merged.workStartTime)) merged.workStartTime = DEFAULT_SETTINGS.workStartTime;
   if (!/^\d{2}:\d{2}$/.test(merged.workEndTime)) merged.workEndTime = DEFAULT_SETTINGS.workEndTime;
   if (!Array.isArray(merged.workDays)) merged.workDays = [];
+  if (!['all', 'location', 'keywords'].includes(merged.importMode)) merged.importMode = 'all';
   return merged;
 }
 
@@ -184,9 +190,34 @@ export async function loadSettings(): Promise<AppSettings> {
   return withDefaults(await get<AppSettings>('settings', 'app'));
 }
 
-export async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+/** Settings that follow you to other devices (not tokens, keys, theme or per-device status). */
+export const SYNCED_PREF_KEYS: (keyof AppSettings)[] = [
+  'categories',
+  'workDays',
+  'workStartTime',
+  'workEndTime',
+  'workLocationId',
+  'homeLocationId',
+  'tabLabel',
+  'tabLabelCustom',
+  'reportTitle',
+  'reportTitleCustom',
+  'reimburseRate',
+  'importAllWithLocation',
+  'importMode',
+  'selectedCalendars',
+  'availableCalendars',
+  'syncPastDays',
+  'syncFutureDays',
+  'routingProvider',
+  'osrmUrl',
+  'gpsMaxAccuracy',
+];
+
+export async function saveSettings(patch: Partial<AppSettings>, opts: { fromSync?: boolean } = {}): Promise<AppSettings> {
   const cur = await loadSettings();
-  const next = withDefaults({ ...cur, ...patch });
+  const touchesPrefs = !opts.fromSync && Object.keys(patch).some((k) => SYNCED_PREF_KEYS.includes(k as keyof AppSettings));
+  const next = withDefaults({ ...cur, ...patch, ...(touchesPrefs ? { prefsUpdatedAt: new Date().toISOString() } : {}) });
   await put('settings', next);
   return next;
 }

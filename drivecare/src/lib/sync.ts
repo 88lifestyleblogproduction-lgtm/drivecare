@@ -85,12 +85,16 @@ export async function syncCalendars(): Promise<SyncSummary> {
 
         const title = ev.summary ?? '';
         let cls = classify(title, settings.categories);
-        if (!cls && settings.importAllWithLocation && (ev.location ?? '').trim()) cls = { categoryId: 'general', keyword: '' };
-        // Unrelated events are never stored.
+        const timed = !!ev.start?.dateTime;
+        // Import mode: every timed event (default), events with a location, or keyword matches only.
+        // All-day events (birthdays, holidays, reminders) are only imported when a keyword matches.
+        if (!cls && timed && (settings.importMode === 'all' || (settings.importMode === 'location' && (ev.location ?? '').trim()))) {
+          cls = { categoryId: 'general', keyword: '' };
+        }
         if (!prev && !cls) continue;
         if (prev && !cls && !prev.categoryOverride) {
           if (linked.has(id)) {
-            toPut.push({ ...prev, summary: title, status: 'removed', statusNote: 'No longer matches treatment keywords', lastSynced: stamp, updatedAt: stamp });
+            toPut.push({ ...prev, summary: title, status: 'removed', statusNote: 'No longer matches your import settings', lastSynced: stamp, updatedAt: stamp });
           } else {
             toDelete.push(id);
           }

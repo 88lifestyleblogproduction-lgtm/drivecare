@@ -145,6 +145,17 @@ The redirect URI must match exactly: scheme, domain and trailing slash. The exac
 
 ---
 
+## 6b. Use the same data on your phone and computer
+
+DriveCare can keep your phone and computer in sync through a **hidden DriveCare-only folder in your own Google Drive**. The permission it uses is `drive.appdata`, which can't see your other Drive files. There is no DriveCare server.
+
+1. In Google Cloud, go to **APIs & Services → Library**, search for **Google Drive API** and click **Enable**. This is a one-time step.
+2. *(Recommended)* In Netlify, go to **Site configuration → Environment variables** and add `VITE_GOOGLE_CLIENT_ID` with your Client ID, then redeploy. New devices then work without typing the Client ID.
+3. On each device, go to **Settings → Sync between devices** and turn on **Use the same data on all my devices**, then tap **Sign in with Google & sync**. Use the **same Gmail** on every device.
+4. After that, the **Sync** button syncs both your calendar and your devices. While you're signed in, changes are also sent automatically a few seconds after you make them, and pulled when the app reopens.
+
+**How merging works:** each record keeps its newest version, and deleting a record on one device deletes it on the others. Places, work schedule, appointment types and keywords are synced too. Google tokens and API keys are never uploaded. To remove the cloud copy, use **Settings → Sync between devices → Delete cloud copy**, or go to Google Drive → Settings → Manage apps.
+
 ## 7. Daily use
 
 ### First steps

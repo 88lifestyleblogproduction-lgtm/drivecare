@@ -7,11 +7,14 @@ export type StoreName =
   | 'locations'
   | 'routePlans'
   | 'settings'
-  | 'cache';
+  | 'cache'
+  | 'tombstones';
 
-export const STORES: StoreName[] = ['fuel', 'receipts', 'trips', 'appointments', 'locations', 'routePlans', 'settings', 'cache'];
+export const STORES: StoreName[] = ['fuel', 'receipts', 'trips', 'appointments', 'locations', 'routePlans', 'settings', 'cache', 'tombstones'];
+/** Stores synced between devices; deletions in these leave a tombstone so they also delete elsewhere. */
+export const SYNC_STORES: StoreName[] = ['fuel', 'trips', 'appointments', 'locations', 'routePlans'];
 const DB_NAME = 'drivecare';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -101,17 +104,20 @@ export async function putMany<T extends { id: string }>(store: StoreName, values
 }
 
 export async function remove(store: StoreName, id: string): Promise<void> {
-  await run(store, 'readwrite', (t) => {
-    t.objectStore(store).delete(id);
-  });
-  emit(store);
+  await removeMany(store, [id]);
 }
 
-export async function removeMany(store: StoreName, ids: string[]): Promise<void> {
+export async function removeMany(store: StoreName, ids: string[], opts: { tombstone?: boolean } = {}): Promise<void> {
   if (!ids.length) return;
-  await run(store, 'readwrite', (t) => {
+  const tomb = (opts.tombstone ?? true) && SYNC_STORES.includes(store);
+  const at = new Date().toISOString();
+  await run(tomb ? [store, 'tombstones'] : store, 'readwrite', (t) => {
     const s = t.objectStore(store);
     for (const id of ids) s.delete(id);
+    if (tomb) {
+      const ts = t.objectStore('tombstones');
+      for (const id of ids) ts.put({ id: `${store}:${id}`, at });
+    }
   });
   emit(store);
 }

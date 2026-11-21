@@ -119,13 +119,18 @@ function Appointments() {
   const [editLeg, setEditLeg] = useState<{ day: string; key: string } | null>(null);
   const [legText, setLegText] = useState('');
   const [filter, setFilter] = useState<'upcoming' | 'past' | 'address'>('upcoming');
+  const [showCancelled, setShowCancelled] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const locMap = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
   const nowIsoStr = new Date().toISOString();
   const today = todayKey();
 
+  const [showInactive, setShowInactive] = useState(false);
+  const inactiveCount = appointments.filter((a) => !isActiveAppt(a) && (filter === 'past' ? dateKey(a.start) < today : dateKey(a.start) >= today)).length;
   const list = appointments
+    .filter((a) => showInactive || isActiveAppt(a))
+    .filter((a) => showCancelled || isActiveAppt(a))
     .filter((a) => {
       if (filter === 'address') return isActiveAppt(a) && !a.locationId;
       if (filter === 'upcoming') return dateKey(a.start) >= today;
@@ -229,6 +234,19 @@ function Appointments() {
           <IconPlus size={18} />
         </IconButton>
       </div>
+      {filter !== 'address' && inactiveCount > 0 && (
+        <button type="button" className="px-1 text-left text-[13px] font-semibold text-accent" onClick={() => setShowInactive((v) => !v)}>
+          {showInactive ? 'Hide' : 'Show'} {inactiveCount} cancelled, deleted or untracked appointment{inactiveCount > 1 ? 's' : ''}
+        </button>
+      )}
+      {(() => {
+        const hidden = appointments.filter((a) => !isActiveAppt(a) && (filter === 'past' ? dateKey(a.start) < today : dateKey(a.start) >= today)).length;
+        return hidden > 0 && filter !== 'address' ? (
+          <button type="button" className="px-1 text-[13px] font-semibold text-accent" onClick={() => setShowCancelled((v) => !v)}>
+            {showCancelled ? 'Hide' : 'Show'} {hidden} cancelled, removed or untracked
+          </button>
+        ) : null;
+      })()}
       {loaded && list.length === 0 && (
         <Empty
           title={filter === 'address' ? 'All addresses confirmed' : 'No appointments'}

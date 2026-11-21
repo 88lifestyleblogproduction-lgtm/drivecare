@@ -13,6 +13,8 @@ import { fetchWithTimeout } from './net';
 import type { CalendarRef } from './types';
 
 export const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+/** Hidden app-only folder in your Google Drive (DriveCare cannot see your other Drive files) */
+export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const TOKEN_KEY = 'drivecare.gtoken';
 const STATE_KEY = 'drivecare.oauth';
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -36,7 +38,7 @@ function randomState(): string {
   return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 }
 
-export function startGoogleAuth(clientId: string, intent: AuthIntent): void {
+export function startGoogleAuth(clientId: string, intent: AuthIntent, extraScopes: string[] = []): void {
   if (!clientId) throw new Error('Enter your Google OAuth Client ID in Settings first.');
   const state = randomState();
   sessionStorage.setItem(STATE_KEY, JSON.stringify({ state, intent, at: Date.now() }));
@@ -44,7 +46,7 @@ export function startGoogleAuth(clientId: string, intent: AuthIntent): void {
     client_id: clientId,
     redirect_uri: redirectUri(),
     response_type: 'token',
-    scope: GOOGLE_SCOPE,
+    scope: [GOOGLE_SCOPE, ...extraScopes].join(' '),
     include_granted_scopes: 'true',
     state,
   });
@@ -83,7 +85,7 @@ export function consumeOAuthRedirect(): RedirectResult | null {
   if (!scope.split(' ').includes(GOOGLE_SCOPE)) {
     return { ok: false, error: 'Calendar read access was not granted. Tick the calendar permission on the Google consent screen.' };
   }
-  sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token, expiresAt: Date.now() + expiresIn * 1000 }));
+  sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token, expiresAt: Date.now() + expiresIn * 1000, scopes: scope.split(' ') }));
   return { ok: true, intent: saved.intent };
 }
 
@@ -100,6 +102,29 @@ export function getToken(): string | null {
   } catch {
     return null;
   }
+}
+
+/** True when the current sign-in includes the given permission. */
+export function hasScope(scope: string): boolean {
+  if (!getToken()) return false;
+  try {
+    const t = JSON.parse(sessionStorage.getItem(TOKEN_KEY) || 'null') as { scopes?: string[] } | null;
+    return !!t?.scopes?.includes(scope);
+  } catch {
+    return false;
+  }
+}
+
+/** Authenticated request to any Google API. */
+export async function googleFetch(url: string, init: RequestInit = {}, ms = 30000): Promise<Response> {
+  const token = getToken();
+  if (!token) throw new AuthRequiredError();
+  const res = await fetchWithTimeout(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` } }, ms);
+  if (res.status === 401) {
+    clearToken();
+    throw new AuthRequiredError();
+  }
+  return res;
 }
 
 export function tokenMinutesLeft(): number {
