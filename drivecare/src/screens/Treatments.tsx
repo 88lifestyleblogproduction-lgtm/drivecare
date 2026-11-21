@@ -119,7 +119,6 @@ function Appointments() {
   const [editLeg, setEditLeg] = useState<{ day: string; key: string } | null>(null);
   const [legText, setLegText] = useState('');
   const [filter, setFilter] = useState<'upcoming' | 'past' | 'address'>('upcoming');
-  const [showCancelled, setShowCancelled] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const locMap = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
@@ -130,7 +129,6 @@ function Appointments() {
   const inactiveCount = appointments.filter((a) => !isActiveAppt(a) && (filter === 'past' ? dateKey(a.start) < today : dateKey(a.start) >= today)).length;
   const list = appointments
     .filter((a) => showInactive || isActiveAppt(a))
-    .filter((a) => showCancelled || isActiveAppt(a))
     .filter((a) => {
       if (filter === 'address') return isActiveAppt(a) && !a.locationId;
       if (filter === 'upcoming') return dateKey(a.start) >= today;
@@ -239,14 +237,6 @@ function Appointments() {
           {showInactive ? 'Hide' : 'Show'} {inactiveCount} cancelled, deleted or untracked appointment{inactiveCount > 1 ? 's' : ''}
         </button>
       )}
-      {(() => {
-        const hidden = appointments.filter((a) => !isActiveAppt(a) && (filter === 'past' ? dateKey(a.start) < today : dateKey(a.start) >= today)).length;
-        return hidden > 0 && filter !== 'address' ? (
-          <button type="button" className="px-1 text-[13px] font-semibold text-accent" onClick={() => setShowCancelled((v) => !v)}>
-            {showCancelled ? 'Hide' : 'Show'} {hidden} cancelled, removed or untracked
-          </button>
-        ) : null;
-      })()}
       {loaded && list.length === 0 && (
         <Empty
           title={filter === 'address' ? 'All addresses confirmed' : 'No appointments'}
@@ -461,10 +451,66 @@ export function StatusBadge({ a }: { a: Appointment }) {
   return null;
 }
 
+/** Removes an appointment from your schedule (kept as "not tracked" so sync won't add it back). */
+export async function removeFromSchedule(a: Appointment, toast: (t: string, tone?: 'ok' | 'error' | 'info') => void) {
+  if (a.source === 'manual') {
+    if (!confirm(`Delete “${a.summary}”?`)) return;
+    await remove('appointments', a.id);
+    toast('Appointment deleted');
+    return;
+  }
+  await put('appointments', { ...a, excluded: true, updatedAt: nowIso() });
+  toast('Removed from your schedule — use “Show … untracked” to bring it back');
+}
+
 function ApptRow({ appt, loc, past, onClick }: { appt: Appointment; loc?: SavedLocation; past: boolean; onClick: () => void }) {
   const { settings } = useData();
+  const toast = useToast();
   const cat = categoryById(settings, appt.categoryId);
   const inactive = !isActiveAppt(appt);
+  return (
+    <div className="flex items-center">
+      <div className="min-w-0 flex-1">
+        <ApptRowInner appt={appt} loc={loc} past={past} onClick={onClick} cat={cat} inactive={inactive} />
+      </div>
+      {appt.excluded ? (
+        <button
+          type="button"
+          className="mr-3 shrink-0 rounded-full bg-accent/12 px-2.5 py-1 text-[12px] font-semibold text-accent"
+          onClick={() => void put('appointments', { ...appt, excluded: false, updatedAt: nowIso() }).then(() => toast('Added back to your schedule'))}
+        >
+          Restore
+        </button>
+      ) : (
+        <button
+          type="button"
+          aria-label={`Remove ${appt.summary} from schedule`}
+          title="Remove from schedule"
+          className="mr-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-fill text-[15px] font-bold text-muted active:bg-bad/20 active:text-bad"
+          onClick={() => void removeFromSchedule(appt, toast)}
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ApptRowInner({
+  appt,
+  loc,
+  past,
+  onClick,
+  cat,
+  inactive,
+}: {
+  appt: Appointment;
+  loc?: SavedLocation;
+  past: boolean;
+  onClick: () => void;
+  cat: ReturnType<typeof categoryById>;
+  inactive: boolean;
+}) {
   return (
     <Row
       onClick={onClick}
@@ -533,9 +579,7 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
 
   async function del() {
     if (!a) return;
-    if (!confirm(a.source === 'google' ? 'Remove this appointment from DriveCare? (It stays in Google Calendar; it will be re-imported on the next sync unless you turn on “Don’t track this appointment”.)' : 'Delete this appointment?')) return;
-    await remove('appointments', a.id);
-    toast('Appointment removed');
+    await removeFromSchedule(a, toast);
     onClose();
   }
 
@@ -568,6 +612,12 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
         <Detail label="Status" value={a.excluded ? 'Not tracked' : a.status[0].toUpperCase() + a.status.slice(1)} />
         <Detail label="Source" value={a.source === 'google' ? `Google Calendar · ${a.calendarName}` : 'Added manually'} />
         {a.source === 'google' && <Detail label="Calendar location" value={a.locationRaw || 'None'} />}
+        {a.source === 'google' && (
+          <Detail
+            label="Last checked with Google"
+            value={a.lastSynced ? `${fmtDateTime(a.lastSynced)} — still in Google Calendar at that time` : 'Never'}
+          />
+        )}
         {a.matchedKeyword && <Detail label="Matched keyword" value={`“${a.matchedKeyword}”`} />}
       </List>
 
@@ -651,7 +701,7 @@ function AppointmentDetail({ apptId, onClose }: { apptId: string | null; onClose
         Plan route for {fmtWeekday(dateKey(a.start))}
       </Button>
       <Button full variant="danger" onClick={() => void del()}>
-        {a.source === 'google' ? 'Remove from DriveCare' : 'Delete appointment'}
+        {a.source === 'google' ? (a.excluded ? 'Already removed from schedule' : 'Remove from schedule') : 'Delete appointment'}
       </Button>
 
       <LocationEditor
