@@ -4,6 +4,7 @@ import { IconBack, IconChevron, IconGear, IconDown, IconMap, IconPlus, IconRefre
 import MapView, { type MapLine, type MapMarker } from '../components/MapView';
 import LocationEditor, { LocationSelect, type LocationDraft } from '../components/LocationEditor';
 import { useData } from '../lib/data';
+import ThemeToggle from '../components/ThemeToggle';
 import { useNav, type TreatmentView } from '../lib/nav';
 import { useCalendarSync } from '../lib/useSync';
 import { getToken } from '../lib/google';
@@ -24,7 +25,7 @@ import { computeFuelStats } from '../lib/fuel';
 import { hasCoords } from '../lib/geo';
 import { put, remove } from '../lib/db';
 import { addDays, dateKey, fmtDateShort, fmtDateTime, fmtKey, fmtTime, fmtWeekday, fromLocalInput, todayKey, toLocalInput } from '../lib/time';
-import { fmtCADLong, fmtKm, fmtNum1, fmtPerKm } from '../lib/format';
+import { fmtCAD, fmtCADLong, fmtKm, fmtNum1, fmtPerKm } from '../lib/format';
 import { effectiveKm, SOURCE_LABEL } from '../lib/trips';
 import type { Appointment, PlanStop, RoutePlan, SavedLocation } from '../lib/types';
 import { errMsg, groupBy, nowIso, parseNum, uid } from '../lib/util';
@@ -46,6 +47,7 @@ export default function TreatmentsScreen() {
           <IconButton label="Sync Google Calendar" onClick={() => void sync()}>
             {syncing ? <Spinner /> : <IconRefresh />}
           </IconButton>
+          <ThemeToggle />
           <IconButton label="Settings" onClick={nav.openSettings}>
             <IconGear />
           </IconButton>
@@ -113,7 +115,8 @@ function SyncStatus() {
 /* ---------------- Appointments ---------------- */
 
 function Appointments() {
-  const { appointments, locations, settings, loaded, routePlans, trips } = useData();
+  const { appointments, locations, settings, loaded, routePlans, trips, fuel } = useData();
+  const cpk = useMemo(() => computeFuelStats(fuel).costPerKm, [fuel]);
   const nav = useNav();
   const toast = useToast();
   const [editLeg, setEditLeg] = useState<{ day: string; key: string } | null>(null);
@@ -200,6 +203,7 @@ function Appointments() {
 
   const legProps = (day: string, plan: RoutePlan, seg: PlanSegment) => ({
     seg,
+    costPerKm: cpk.value,
     editing: editLeg?.day === day && editLeg.key === seg.manualKey,
     text: legText,
     onText: setLegText,
@@ -289,7 +293,9 @@ function Appointments() {
                 </Button>
               </div>
             }
-            footer={`Day total: ${incomplete ? `${fmtNum1(total)}+ km (some legs missing)` : fmtKm(total)}. Tap any distance to adjust it.`}
+            footer={`Day total: ${incomplete ? `${fmtNum1(total)}+ km (some legs missing)` : fmtKm(total)}${
+              cpk.value != null ? ` · fuel ≈ ${fmtCAD(total * cpk.value)}${incomplete ? '+' : ''}` : ''
+            }. ${cpk.value != null ? `Fuel at ${fmtPerKm(cpk.value)} (${cpk.basis === 'verified' ? 'from full-tank records' : 'estimate'}). ` : 'Fuel cost appears once you have fuel records with odometer readings. '}Tap any distance to adjust it.`}
           >
             <List>
               {d.points.map((p, i) => (
@@ -350,6 +356,7 @@ function PlaceRow({ point }: { point: PlanPoint }) {
 
 function LegRow({
   seg: s,
+  costPerKm,
   editing,
   text,
   onText,
@@ -358,6 +365,7 @@ function LegRow({
   onCancel,
 }: {
   seg: PlanSegment;
+  costPerKm: number | null;
   editing: boolean;
   text: string;
   onText: (v: string) => void;
@@ -399,7 +407,10 @@ function LegRow({
       {s.loading ? (
         <Spinner size={12} />
       ) : s.usedKm != null ? (
-        <span className={`font-semibold tabular ${s.manualKm != null ? 'text-warn' : 'text-ink'}`}>{fmtKm(s.usedKm)} ✎</span>
+        <span className="flex items-center gap-2">
+          {costPerKm != null && s.usedKm > 0 && <span className="rounded-md bg-good/12 px-1.5 py-0.5 font-semibold text-good tabular">⛽ {fmtCAD(s.usedKm * costPerKm)}</span>}
+          <span className={`font-semibold tabular ${s.manualKm != null ? 'text-warn' : 'text-ink'}`}>{fmtKm(s.usedKm)} ✎</span>
+        </span>
       ) : (
         <span className="font-semibold text-warn">Enter km ✎</span>
       )}
@@ -1109,7 +1120,10 @@ function RoutePlanner() {
                     {s.loading ? (
                       <Spinner />
                     ) : s.usedKm != null ? (
-                      <span className="text-[16px] font-semibold tabular">{fmtKm(s.usedKm)}</span>
+                      <span className="block">
+                        <span className="text-[16px] font-semibold tabular">{fmtKm(s.usedKm)}</span>
+                        {costPerKm.value != null && s.usedKm > 0 && <span className="block text-[12px] font-semibold text-good tabular">⛽ {fmtCAD(s.usedKm * costPerKm.value)}</span>}
+                      </span>
                     ) : (
                       <span className="text-[13px] font-medium text-warn">Distance unavailable</span>
                     )}

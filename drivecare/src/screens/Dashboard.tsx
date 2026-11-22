@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { Badge, Banner, Button, Card, Hero, IconButton, List, Page, Row, Section, Stat } from '../components/ui';
 import { IconCalendar, IconFuel, IconGear, IconMap, IconRoute, IconTreatment } from '../components/Icons';
 import { useData } from '../lib/data';
+import ThemeToggle from '../components/ThemeToggle';
 import { useNav } from '../lib/nav';
 import { computeFuelStats } from '../lib/fuel';
 import { buildTreatmentReport, clinicInfo, isActiveAppt } from '../lib/report';
@@ -62,9 +63,12 @@ export default function Dashboard() {
       title="DriveCare"
       subtitle={fmtKey(dateKey(now))}
       right={
-        <IconButton label="Settings" onClick={nav.openSettings}>
-          <IconGear />
-        </IconButton>
+        <>
+          <ThemeToggle />
+          <IconButton label="Settings" onClick={nav.openSettings}>
+            <IconGear />
+          </IconButton>
+        </>
       }
     >
       {error && <Banner tone="error" title="Storage problem">{error}</Banner>}
