@@ -1,0 +1,169 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --app-bg: #f3f4f8;
+  --app-card: #ffffff;
+  --app-elev: #ffffff;
+  --app-ink: #1c1c1e;
+  --app-muted: #6e6e73;
+  --app-faint: #aeaeb2;
+  --app-line: rgba(60, 60, 67, 0.14);
+  --app-fill: rgba(118, 118, 128, 0.12);
+  --app-accent: #007aff;
+  --app-green: #248a3d;
+  --app-orange: #c93400;
+  --app-red: #d70015;
+  --app-bar: rgba(249, 249, 249, 0.82);
+  color-scheme: light;
+}
+
+.dark {
+  --app-bg: #000000;
+  --app-card: #1c1c1e;
+  --app-elev: #2c2c2e;
+  --app-ink: #f5f5f7;
+  --app-muted: #98989f;
+  --app-faint: #636366;
+  --app-line: rgba(84, 84, 88, 0.6);
+  --app-fill: rgba(118, 118, 128, 0.24);
+  --app-accent: #0a84ff;
+  --app-green: #30d158;
+  --app-orange: #ff9f0a;
+  --app-red: #ff453a;
+  --app-bar: rgba(22, 22, 24, 0.82);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--app-bg);
+  --color-card: var(--app-card);
+  --color-elev: var(--app-elev);
+  --color-ink: var(--app-ink);
+  --color-muted: var(--app-muted);
+  --color-faint: var(--app-faint);
+  --color-line: var(--app-line);
+  --color-fill: var(--app-fill);
+  --color-accent: var(--app-accent);
+  --color-good: var(--app-green);
+  --color-warn: var(--app-orange);
+  --color-bad: var(--app-red);
+  --color-bar: var(--app-bar);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+@layer base {
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--app-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* iOS zooms into inputs smaller than 16px */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+input[type='date'],
+input[type='datetime-local'],
+input[type='time'] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 1.5rem;
+  text-align: left;
+}
+}
+
+.surface {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+}
+.dark .surface {
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.sheet-enter {
+  animation: sheet-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* Leaflet */
+.leaflet-container {
+  font: inherit;
+  background: var(--app-fill);
+}
+.dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88);
+}
+.dark .leaflet-control-attribution,
+.dark .leaflet-bar a {
+  background: #1c1c1e;
+  color: #ccc;
+}
+.dark .leaflet-control-attribution a {
+  color: #6cb4ff;
+}
+.dc-pin {
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background: #007aff;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.dc-pin.home {
+  background: #34c759;
+}
+.dc-pin.end {
+  background: #ff9500;
+}
