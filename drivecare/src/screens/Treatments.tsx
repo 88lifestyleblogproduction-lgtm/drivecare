@@ -5,6 +5,7 @@ import MapView, { type MapLine, type MapMarker } from '../components/MapView';
 import LocationEditor, { LocationSelect, type LocationDraft } from '../components/LocationEditor';
 import { useData } from '../lib/data';
 import ThemeToggle from '../components/ThemeToggle';
+import ConfirmTrips from '../components/ConfirmTrips';
 import { useNav, type TreatmentView } from '../lib/nav';
 import { useCalendarSync } from '../lib/useSync';
 import { getToken } from '../lib/google';
@@ -138,7 +139,15 @@ function Appointments() {
       return dateKey(a.start) < today;
     })
     .sort((a, b) => (filter === 'past' ? b.start.localeCompare(a.start) : a.start.localeCompare(b.start)));
-  const groups = groupBy(list, (a) => dateKey(a.start));
+  const groups0 = groupBy(list, (a) => dateKey(a.start));
+  // Workdays show up automatically (Home → Work → Home) even without appointments.
+  if (filter === 'upcoming' && workLocationOf(settings, locations)) {
+    for (let i = 0; i < 14; i++) {
+      const day = addDays(today, i);
+      if (!groups0.has(day) && workdayStatus(day, routePlans.find((p) => p.id === day), settings, trips, locations).on) groups0.set(day, []);
+    }
+  }
+  const groups = new Map([...groups0.entries()].sort((a, b) => (filter === 'past' ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0]))));
   const needAddress = appointments.filter((a) => isActiveAppt(a) && !a.locationId).length;
 
   // Driving distance between consecutive appointments, using the same plan (order, skips, manual
@@ -150,8 +159,8 @@ function Appointments() {
     if (filter === 'address') return m;
     for (const day of dayKeys ? dayKeys.split(',') : []) {
       const dAppts = dayAppointments(appointments, day);
-      if (dAppts.length < 1) continue;
       const plan = reconcilePlan(routePlans.find((p) => p.id === day), day, dAppts, settings, locations, trips);
+      if (!plan.stops.some((x) => !x.excluded)) continue;
       m.set(day, { plan, points: buildPoints(plan, apptMap, locMap, settings) });
     }
     return m;
@@ -201,6 +210,18 @@ function Appointments() {
     toast(v == null ? 'Adjustment removed' : 'Distance adjusted');
   }
 
+  async function patchPlan(plan: RoutePlan, patch: Partial<RoutePlan>) {
+    await put('routePlans', { ...plan, ...patch, updatedAt: nowIso() });
+  }
+
+  /** Remove the first leg (leaving home), the last leg (going home) or the work stop for that day. */
+  async function removePoint(plan: RoutePlan, p: PlanPoint) {
+    if (p.role === 'start') await patchPlan(plan, { skipStart: true });
+    else if (p.role === 'end') await patchPlan(plan, { skipEnd: true });
+    else await patchPlan(plan, { stops: plan.stops.map((x) => (p.stopKeys.includes(x.key) ? { ...x, excluded: true } : x)) });
+    toast(p.role === 'end' ? 'Trip home removed for this day' : p.role === 'start' ? 'Trip from home removed for this day' : 'Removed from this day');
+  }
+
   const legProps = (day: string, plan: RoutePlan, seg: PlanSegment) => ({
     seg,
     costPerKm: cpk.value,
@@ -219,7 +240,13 @@ function Appointments() {
   return (
     <>
       <SyncStatus />
+      <ConfirmTrips />
       <WorkCard />
+      {settings.workDays.length > 0 && !workLocationOf(settings, locations) && (
+        <Banner tone="warn" title="Add your work address">
+          You chose workdays, but there is no work address yet, so workdays can’t be shown or routed. Tap <b>Edit</b> on the Work card above, then <b>Add work address</b>.
+        </Banner>
+      )}
       <div className="flex items-center gap-2">
         <div className="flex-1">
           <Segmented
@@ -241,7 +268,7 @@ function Appointments() {
           {showInactive ? 'Hide' : 'Show'} {inactiveCount} cancelled, deleted or untracked appointment{inactiveCount > 1 ? 's' : ''}
         </button>
       )}
-      {loaded && list.length === 0 && (
+      {loaded && groups.size === 0 && (
         <Empty
           title={filter === 'address' ? 'All addresses confirmed' : 'No appointments'}
           text={filter === 'upcoming' ? 'Sync Google Calendar or add an appointment manually.' : undefined}
@@ -308,11 +335,30 @@ function Appointments() {
                       </div>
                     ))
                   ) : (
-                    <PlaceRow point={p} />
+                    <PlaceRow point={p} onRemove={() => void removePoint(d.plan, p)} />
                   )}
                   {segs[i] && <LegRow {...legProps(day, d.plan, segs[i])} />}
                 </div>
               ))}
+              {(d.plan.skipStart || d.plan.skipEnd || d.plan.stops.some((x) => x.workRole && x.excluded)) && (
+                <div className="flex flex-wrap gap-2 px-4 py-2.5">
+                  {d.plan.skipStart && (
+                    <Button small variant="tinted" onClick={() => void patchPlan(d.plan, { skipStart: false })}>
+                      + Trip from home
+                    </Button>
+                  )}
+                  {d.plan.stops.some((x) => x.workRole && x.excluded) && (
+                    <Button small variant="tinted" onClick={() => void patchPlan(d.plan, { stops: d.plan.stops.map((x) => (x.workRole ? { ...x, excluded: false } : x)) })}>
+                      + Work
+                    </Button>
+                  )}
+                  {d.plan.skipEnd && (
+                    <Button small variant="tinted" onClick={() => void patchPlan(d.plan, { skipEnd: false })}>
+                      + Trip back home
+                    </Button>
+                  )}
+                </div>
+              )}
               {others.map((a) => (
                 <ApptRow key={a.id} appt={a} loc={a.locationId ? locMap.get(a.locationId) : undefined} past={a.end < nowIsoStr} onClick={() => setOpenId(a.id)} />
               ))}
@@ -334,7 +380,7 @@ function SameRow() {
   );
 }
 
-function PlaceRow({ point }: { point: PlanPoint }) {
+function PlaceRow({ point, onRemove }: { point: PlanPoint; onRemove?: () => void }) {
   const icon = point.work ? '💼' : point.role === 'start' ? '🏠' : point.role === 'end' ? '🏁' : '📍';
   const time = point.work
     ? [point.arrive && `arrive ${fmtTime(point.arrive)}`, point.leave && `leave ${fmtTime(point.leave)}`].filter(Boolean).join(' · ')
@@ -350,6 +396,16 @@ function PlaceRow({ point }: { point: PlanPoint }) {
         <div className="truncate text-[15px] font-medium">{point.work ? `Work · ${point.label}` : point.label}</div>
         <div className="text-[12px] text-muted">{time}</div>
       </div>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label={`Remove ${point.role === 'end' ? 'trip home' : point.role === 'start' ? 'trip from home' : point.label}`}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-fill text-[15px] font-bold text-muted active:bg-bad/20 active:text-bad"
+          onClick={onRemove}
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -1010,6 +1066,14 @@ function RoutePlanner() {
         <Field label="Start from" hint={!plan.startLocationId ? 'Set your Home in Places → add a place of type Home.' : undefined}>
           <LocationSelect value={plan.startLocationId} onChange={(id) => void savePlan({ ...plan, startLocationId: id })} locations={locations} noneLabel="Choose…" />
         </Field>
+        {(plan.skipStart || plan.skipEnd) && (
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px] text-muted">
+            {plan.skipStart && 'Trip from home removed.'} {plan.skipEnd && 'Trip back home removed.'}
+            <Button small variant="tinted" onClick={() => void savePlan({ ...plan, skipStart: false, skipEnd: false })}>
+              Add back
+            </Button>
+          </div>
+        )}
         <Field label="End at">
           <LocationSelect value={plan.endLocationId} onChange={(id) => void savePlan({ ...plan, endLocationId: id })} locations={locations} noneLabel="Choose…" />
         </Field>

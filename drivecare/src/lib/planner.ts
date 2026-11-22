@@ -71,6 +71,12 @@ function insertByTime(stops: PlanStop[], stop: PlanStop, appts: Map<string, Appo
   else stops.splice(idx, 0, stop);
 }
 
+/** Work hours for a given day: that weekday's own hours, or your usual hours. */
+export function workTimesFor(day: string, settings: AppSettings): { start: string; end: string } {
+  const h = settings.workHours[String(weekdayOf(day))];
+  return { start: h?.start || settings.workStartTime, end: h?.end || settings.workEndTime };
+}
+
 export const weekdayOf = (key: string) => (((dayNumber(key) + 4) % 7) + 7) % 7; // 0 = Sunday
 
 /** On your weekly work schedule */
@@ -89,7 +95,7 @@ export function homeLocationOf(settings: AppSettings, locations: SavedLocation[]
 /** A recorded or logged trip that arrived at work before (or shortly after) the start of work hours. */
 export function detectedWorkTrip(day: string, trips: Trip[], work: SavedLocation | null, settings: AppSettings): Trip | null {
   if (!work) return null;
-  const latest = new Date(new Date(zonedToIso(day, settings.workStartTime)).getTime() + 2 * 36e5).toISOString();
+  const latest = new Date(new Date(zonedToIso(day, workTimesFor(day, settings).start)).getTime() + 2 * 36e5).toISOString();
   return (
     trips.find((t) => {
       if (t.recording || t.origin === 'route-plan' || !t.endTime || dateKey(t.startTime) !== day || t.endTime > latest) return false;
@@ -147,7 +153,7 @@ export function reconcilePlan(
   // keep work stops in step with current work hours and address
   stops = stops.map((s) =>
     s.workRole && work
-      ? { ...s, locationId: work.id, time: zonedToIso(day, s.workRole === 'work-start' ? settings.workStartTime : settings.workEndTime) }
+      ? { ...s, locationId: work.id, time: zonedToIso(day, s.workRole === 'work-start' ? workTimesFor(day, settings).start : workTimesFor(day, settings).end) }
       : s
   );
   const present = new Set(stops.map((s) => s.appointmentId).filter(Boolean));
@@ -158,7 +164,7 @@ export function reconcilePlan(
   if (workOn && work) {
     for (const role of ['work-start', 'work-end'] as const) {
       if (stops.some((s) => s.workRole === role)) continue;
-      const time = zonedToIso(day, role === 'work-start' ? settings.workStartTime : settings.workEndTime);
+      const time = zonedToIso(day, role === 'work-start' ? workTimesFor(day, settings).start : workTimesFor(day, settings).end);
       insertByTime(stops, { key: role, type: 'location', appointmentId: null, locationId: work.id, excluded: false, workRole: role, time }, apptById);
     }
   }
@@ -180,15 +186,15 @@ export function buildPoints(plan: RoutePlan, appts: Map<string, Appointment>, lo
   });
   const points: PlanPoint[] = [];
   const startLoc = plan.startLocationId ? locs.get(plan.startLocationId) : undefined;
-  points.push(pt('start', plan.startLocationId, startLoc ? locationTitle(startLoc) : 'Choose a starting point', 'start'));
+  if (!plan.skipStart) points.push(pt('start', plan.startLocationId, startLoc ? locationTitle(startLoc) : 'Choose a starting point', 'start'));
 
   for (const s of plan.stops) {
     if (s.excluded) continue;
-    const prev = points[points.length - 1];
+    const prev: PlanPoint | undefined = points[points.length - 1];
     if (s.type === 'appointment') {
       const a = s.appointmentId ? appts.get(s.appointmentId) : undefined;
       if (!a) continue;
-      if (prev.role === 'stop' && a.locationId && prev.locationId === a.locationId) {
+      if (prev && prev.role === 'stop' && a.locationId && prev.locationId === a.locationId) {
         prev.appointments.push(a);
         prev.stopKeys.push(s.key);
         prev.arrive = prev.arrive ?? a.start;
@@ -203,7 +209,7 @@ export function buildPoints(plan: RoutePlan, appts: Map<string, Appointment>, lo
       p.leave = a.end;
       points.push(p);
     } else {
-      if (prev.role === 'stop' && s.locationId && prev.locationId === s.locationId) {
+      if (prev && prev.role === 'stop' && s.locationId && prev.locationId === s.locationId) {
         prev.stopKeys.push(s.key);
         if (s.workRole) {
           prev.work = true;
@@ -224,7 +230,7 @@ export function buildPoints(plan: RoutePlan, appts: Map<string, Appointment>, lo
     }
   }
   const endLoc = plan.endLocationId ? locs.get(plan.endLocationId) : undefined;
-  points.push(pt('end', plan.endLocationId, endLoc ? locationTitle(endLoc) : 'Choose an ending point', 'end'));
+  if (!plan.skipEnd) points.push(pt('end', plan.endLocationId, endLoc ? locationTitle(endLoc) : 'Choose an ending point', 'end'));
   return points;
 }
 
@@ -284,6 +290,27 @@ export function buildSegments(points: PlanPoint[], plan: RoutePlan, results: Map
   return segs;
 }
 
+/** Departure/arrival for a leg: leave when the previous stop ends, arrive when the next one starts. */
+export function segmentTimes(s: PlanSegment, day: string): { start: string; end: string } {
+  const durMs = (s.durationMin ?? 0) * 60000;
+  let start: string;
+  let end: string;
+  if (s.from.leave) {
+    start = s.from.leave;
+    end = s.to.arrive ?? new Date(new Date(start).getTime() + durMs).toISOString();
+  } else if (s.to.arrive) {
+    end = s.to.arrive;
+    start = new Date(new Date(end).getTime() - durMs).toISOString();
+  } else {
+    start = zonedToIso(day, '12:00');
+    end = start;
+  }
+  if (end < start) end = start;
+  return { start, end };
+}
+
+export const pointRef = (p: PlanPoint) => ({ label: p.label, locationId: p.locationId, lat: p.location?.lat ?? null, lng: p.location?.lng ?? null });
+
 /** Replaces the trips previously generated from this plan with one trip per segment. */
 export async function saveSegmentsAsTrips(plan: RoutePlan, segments: PlanSegment[]): Promise<{ created: number; skipped: number }> {
   const all = await getAll<Trip>('trips');
@@ -298,21 +325,8 @@ export async function saveSegmentsAsTrips(plan: RoutePlan, segments: PlanSegment
     }
     const fromA = s.from.appointments[s.from.appointments.length - 1];
     const toA = s.to.appointments[0];
-    const durMs = (s.durationMin ?? 0) * 60000;
-    let start: string;
-    let end: string;
-    if (s.from.leave) {
-      start = s.from.leave;
-      end = s.to.arrive ?? new Date(new Date(start).getTime() + durMs).toISOString();
-    } else if (s.to.arrive) {
-      end = s.to.arrive;
-      start = new Date(new Date(end).getTime() - durMs).toISOString();
-    } else {
-      start = zonedToIso(plan.date, '12:00');
-      end = start;
-    }
-    if (end < start) end = start;
-    const point = (p: PlanPoint) => ({ label: p.label, locationId: p.locationId, lat: p.location?.lat ?? null, lng: p.location?.lng ?? null });
+    const { start, end } = segmentTimes(s, plan.date);
+    const point = pointRef;
     created.push(
       newTrip({
         origin: 'route-plan',

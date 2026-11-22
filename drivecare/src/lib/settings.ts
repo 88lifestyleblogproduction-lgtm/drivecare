@@ -137,6 +137,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   reportTitle: 'Travel & Mileage Report',
   workStartTime: '09:00',
   workEndTime: '17:00',
+  workHours: {},
+  workSince: '',
   tabLabelCustom: false,
   cloudSyncEnabled: false,
   lastCloudSync: null,
@@ -158,6 +160,8 @@ export function withDefaults(s: Partial<AppSettings> | undefined): AppSettings {
   if (!/^\d{2}:\d{2}$/.test(merged.workStartTime)) merged.workStartTime = DEFAULT_SETTINGS.workStartTime;
   if (!/^\d{2}:\d{2}$/.test(merged.workEndTime)) merged.workEndTime = DEFAULT_SETTINGS.workEndTime;
   if (!Array.isArray(merged.workDays)) merged.workDays = [];
+  if (!merged.workHours || typeof merged.workHours !== 'object') merged.workHours = {};
+  if (merged.workDays.length && !merged.workSince) merged.workSince = new Date().toISOString().slice(0, 10);
   if (!['all', 'location', 'keywords'].includes(merged.importMode)) merged.importMode = 'all';
   return merged;
 }
@@ -196,6 +200,7 @@ export const SYNCED_PREF_KEYS: (keyof AppSettings)[] = [
   'workDays',
   'workStartTime',
   'workEndTime',
+  'workHours',
   'workLocationId',
   'homeLocationId',
   'tabLabel',

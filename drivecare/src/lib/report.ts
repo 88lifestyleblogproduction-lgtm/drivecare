@@ -33,6 +33,8 @@ export interface ReportRow {
   km: number | null;
   source: string;
   estCost: number | null;
+  plannedKm: number | null;
+  detourKm: number | null;
 }
 
 export interface Breakdown {
@@ -60,6 +62,8 @@ export interface TreatmentReport {
     estCost: number | null;
     costPerTrip: number | null;
     reimbursement: number | null;
+    plannedKm: number;
+    detourKm: number;
   };
   reimburseRate: number | null;
   title: string;
@@ -129,6 +133,8 @@ export function buildTreatmentReport(
       km,
       source: t.distanceSource ? SOURCE_LABEL[t.distanceSource] : 'No distance',
       estCost: km != null && cpk != null ? km * cpk : null,
+      plannedKm: t.plannedKm ?? null,
+      detourKm: t.plannedKm != null && km != null ? km - t.plannedKm : null,
     };
   });
 
@@ -195,6 +201,8 @@ export function buildTreatmentReport(
       estCost: cpk != null ? totalKm * cpk : null,
       costPerTrip: cpk != null && tripsWithKm > 0 ? (totalKm * cpk) / tripsWithKm : null,
       reimbursement: settings.reimburseRate != null ? totalKm * settings.reimburseRate : null,
+      plannedKm: rows.reduce((s, r) => s + (r.plannedKm ?? 0), 0),
+      detourKm: rows.reduce((s, r) => s + (r.detourKm ?? 0), 0),
     },
     reimburseRate: settings.reimburseRate,
     title: settings.reportTitle,

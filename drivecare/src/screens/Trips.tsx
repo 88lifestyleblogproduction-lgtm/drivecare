@@ -5,7 +5,7 @@ import MapView, { type MapLine, type MapMarker } from '../components/MapView';
 import { LocationSelect } from '../components/LocationEditor';
 import { useData } from '../lib/data';
 import { recorder, type RecorderState } from '../lib/recorder';
-import { put, remove } from '../lib/db';
+import { get, put, remove } from '../lib/db';
 import { availableSources, CATEGORY_LABEL, effectiveKm, kmForSource, newTrip, normaliseSource, SOURCE_LABEL, SOURCE_SHORT } from '../lib/trips';
 import { confidenceLabel, suggestMatches } from '../lib/matching';
 import { routeBetween } from '../lib/routing';
@@ -121,6 +121,10 @@ export default function TripsScreen() {
           <div className="mt-2 space-y-1.5">
             <p>GPS recording works only while DriveCare is open on screen. iPhone web apps cannot record in the background, after the phone locks, or start automatically with CarPlay.</p>
             <p>DriveCare asks iOS to keep the screen awake while recording (where supported). If the app is closed, the recording can be resumed or finished, but the gap is not measured.</p>
+            <p>
+              <b>With CarPlay:</b> Google Maps navigates on the car screen while your iPhone screen stays on DriveCare. Tap Start Trip before you drive and leave DriveCare open on the phone;
+              afterwards the recording is offered automatically in “Trips to confirm”.
+            </p>
             <p>Alternatives: log trips manually, enter odometer readings, or create estimated trips from appointment addresses in Treatments → Route. Each trip shows whether its distance is GPS-recorded, a routing estimate, odometer, or manually entered.</p>
           </div>
         )}
@@ -247,8 +251,17 @@ export function TripEditor({ tripId, onClose }: { tripId: string | null; onClose
       const now = new Date();
       return setT(newTrip({ origin: 'manual', startTime: new Date(now.getTime() - 30 * 60000).toISOString(), endTime: now.toISOString() }));
     }
+    // Read the latest copy straight from the database: the in-memory list may still hold the
+    // version saved while the trip was recording.
+    let alive = true;
     const found = trips.find((x) => x.id === tripId);
     setT(found ? { ...found } : null);
+    void get<Trip>('trips', tripId).then((fresh) => {
+      if (alive && fresh) setT({ ...fresh });
+    });
+    return () => {
+      alive = false;
+    };
     // only when opening a different trip
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId]);
@@ -298,7 +311,9 @@ export function TripEditor({ tripId, onClose }: { tripId: string | null; onClose
     if (t.odometerStart != null && t.odometerEnd != null && t.odometerEnd < t.odometerStart) return setError('Odometer end must be greater than start.');
     setBusy('save');
     try {
-      const fixed = normaliseSource({ ...t, updatedAt: nowIso() });
+      // A trip is only "recording" while the recorder is actively running for it.
+      const stillRecording = recorder.state.active && recorder.state.tripId === t.id;
+      const fixed = normaliseSource({ ...t, recording: stillRecording, endTime: t.endTime ?? (stillRecording ? null : nowIso()), updatedAt: nowIso() });
       if (fixed.distanceSource !== t.distanceSource && t.distanceSource) {
         toast(`No ${SOURCE_LABEL[t.distanceSource].toLowerCase()} distance — using ${fixed.distanceSource ? SOURCE_LABEL[fixed.distanceSource].toLowerCase() : 'none'}`, 'info');
       }
@@ -365,6 +380,27 @@ export function TripEditor({ tripId, onClose }: { tripId: string | null; onClose
           />
         </Field>
       </List>
+
+      {t.plannedKm != null && (
+        <Card className="grid grid-cols-3 gap-2 p-3 text-center">
+          <div>
+            <div className="text-[11px] text-muted">Planned</div>
+            <div className="text-[15px] font-bold tabular">{fmtKm(t.plannedKm)}</div>
+            {t.plannedFuelCost != null && <div className="text-[11px] text-muted">⛽ ${t.plannedFuelCost.toFixed(2)}</div>}
+          </div>
+          <div>
+            <div className="text-[11px] text-muted">Actual</div>
+            <div className="text-[15px] font-bold tabular">{fmtKm(effectiveKm(t))}</div>
+            {t.fuelCost != null && <div className="text-[11px] text-muted">⛽ ${t.fuelCost.toFixed(2)}</div>}
+          </div>
+          <div>
+            <div className="text-[11px] text-muted">Detour</div>
+            <div className="text-[15px] font-bold tabular text-warn">
+              {effectiveKm(t) != null ? `${(effectiveKm(t)! - t.plannedKm) >= 0 ? '+' : ''}${(effectiveKm(t)! - t.plannedKm).toFixed(1)} km` : '—'}
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Section title="Distance" footer="Each value is kept separately. Choose which one counts in totals and reports.">
         <List>

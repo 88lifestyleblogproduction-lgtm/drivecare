@@ -28,7 +28,7 @@ export function Page({
           {onTitleClick ? (
             <button type="button" onClick={onTitleClick} className="group flex items-center gap-2 text-left" aria-label={`Rename ${title}`}>
               <h1 className="truncate text-[34px] leading-tight font-extrabold tracking-tight">{title}</h1>
-              <span className="rounded-full bg-fill px-2 py-0.5 text-[12px] font-semibold text-accent">✎ Rename</span>
+              <span className="shrink-0 rounded-full bg-fill px-1.5 py-0.5 text-[13px] text-accent" aria-hidden="true">✎</span>
             </button>
           ) : (
             <h1 className="text-[34px] leading-tight font-extrabold tracking-tight">{title}</h1>

@@ -22,6 +22,8 @@ export function reportCsv(r: TreatmentReport): Blob {
     'Distance (km)',
     'Distance measured by',
     'Estimated fuel cost (CAD)',
+    'Planned km',
+    'Detour km',
     ...(r.reimburseRate != null ? [`Reimbursement at $${r.reimburseRate}/km (CAD)`] : []),
   ];
   const rows: unknown[][] = r.rows.map((x) => [
@@ -37,6 +39,8 @@ export function reportCsv(r: TreatmentReport): Blob {
     km2(x.km),
     x.source,
     money(x.estCost),
+    km2(x.plannedKm),
+    x.detourKm != null ? x.detourKm.toFixed(1) : '',
     ...(r.reimburseRate != null ? [x.km != null ? (x.km * r.reimburseRate).toFixed(2) : ''] : []),
   ]);
   for (const a of r.apptsWithoutTravel) {
@@ -154,6 +158,12 @@ export async function reportPdf(r: TreatmentReport, settings: AppSettings, locat
       ['Estimated fuel cost', r.totals.estCost == null ? 'Unavailable (no reliable fuel cost per km)' : `CAD $${r.totals.estCost.toFixed(2)}`],
       ...(r.reimburseRate != null && r.totals.reimbursement != null
         ? [[`Mileage reimbursement at $${r.reimburseRate}/km`, `CAD $${r.totals.reimbursement.toFixed(2)}`]]
+        : []),
+      ...(r.totals.plannedKm > 0
+        ? [
+            ['Planned km for confirmed trips', `${r.totals.plannedKm.toFixed(1)} km`],
+            ['Detours vs planned route', `${r.totals.detourKm >= 0 ? '+' : ''}${r.totals.detourKm.toFixed(1)} km`],
+          ]
         : []),
       ['Trips without a distance', String(r.totals.tripsMissingDistance)],
       ['Appointments with no recorded travel', String(r.apptsWithoutTravel.length)],

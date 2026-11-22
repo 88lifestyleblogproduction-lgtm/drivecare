@@ -177,6 +177,14 @@ In **Treatments → Appointments**, a thin row between two appointments on the s
 ### Work schedule
 In **Settings → Work schedule**, choose the days you work and where those days start and end (Home or Work). New day routes on workdays use those places automatically. On a workday, the route planner also has a **Use work schedule** button.
 
+### Trips to confirm (planned vs actual, detours)
+After an appointment's time has passed, the Dashboard and Schedule tab show a **Trips to confirm** card for each leg (for example Home → Physiotherapy):
+- **✓ Yes, I drove it** saves the trip with both the **planned** distance and fuel cost and the **actual** ones. If you took a detour, first type the actual km: the card shows the extra km and extra fuel cost. A GPS recording made around the same time (for example with CarPlay) is found automatically and used as the actual distance.
+- **✕ No** lets you describe what the trip really was (and its km), or mark it as **Didn't drive**.
+- Reports show the planned km and detour for each confirmed trip.
+
+**With CarPlay:** Google Maps navigates on the car screen while the iPhone screen shows DriveCare. Tap **Start Trip** before you drive so the actual route is recorded.
+
 ### Recording a trip
 1. Mount the phone, open DriveCare, go to **Trips** and tap **Start Trip**. Keep the app open on screen.
 2. Tap **End Trip** when you arrive, then review the trip. Start and end are matched to saved places within 250 m. Confirm a suggested appointment link if one is offered.

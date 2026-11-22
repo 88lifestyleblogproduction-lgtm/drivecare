@@ -120,7 +120,7 @@ function TreatmentReportView() {
       {filter.startKey > filter.endKey && <Banner tone="error">The start date is after the end date.</Banner>}
 
       <div className="grid grid-cols-2 gap-3">
-        <Stat icon={<IconTreatment size={16} />} tone="teal" label="Appointment km" value={fmtKm(t.totalKm)} sub={`Out ${fmtKm(t.outboundKm)} · Between ${fmtKm(t.betweenKm)} · Return ${fmtKm(t.returnKm)}`} />
+        <Stat icon={<IconTreatment size={16} />} tone="teal" label="Appointment km" value={fmtKm(t.totalKm)} sub={`Out ${fmtKm(t.outboundKm)} · Between ${fmtKm(t.betweenKm)} · Return ${fmtKm(t.returnKm)}${t.plannedKm > 0 ? ` · Detours ${t.detourKm >= 0 ? '+' : ''}${t.detourKm.toFixed(1)} km` : ''}`} />
         <Stat icon={<IconFuel size={16} />} tone="orange" label="Est. fuel cost" value={t.estCost != null ? fmtCAD(t.estCost) : <span className="text-[17px] text-muted">Unavailable</span>} badge={<BasisBadge basis={costPerKm.basis === 'unavailable' ? 'unavailable' : 'estimate'} />} sub={costPerKm.value != null ? `At ${fmtPerKm(costPerKm.value)}` : costPerKm.detail} />
         <Stat icon={<IconCalendar size={16} />} tone="purple" label="Appointments" value={String(t.appointments)} sub={`${report.apptsWithoutTravel.length} without recorded travel`} />
         <Stat icon={<IconRoute size={16} />} tone="blue" label="Associated trips" value={String(t.trips)} sub={t.costPerTrip != null ? `≈ ${fmtCAD(t.costPerTrip)} per trip` : t.tripsMissingDistance ? `${t.tripsMissingDistance} without distance` : 'Cost per trip unavailable'} />

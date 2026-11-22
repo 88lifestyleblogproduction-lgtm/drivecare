@@ -22,6 +22,12 @@ export function daysSummary(days: number[]): string {
   return s.map((d) => DAYS[d]).join(', ');
 }
 
+function hoursSummary(s: ReturnType<typeof useData>['settings']): string {
+  const hs = s.workDays.map((d) => s.workHours[String(d)] ?? { start: s.workStartTime, end: s.workEndTime });
+  const same = hs.every((h) => h.start === hs[0]?.start && h.end === hs[0]?.end);
+  return same && hs[0] ? `${fmtHHmm(hs[0].start)}–${fmtHHmm(hs[0].end)}` : 'hours vary by day';
+}
+
 /** Compact summary of your work schedule with an Edit button. */
 export function WorkCard() {
   const { settings, locations } = useData();
@@ -40,7 +46,7 @@ export function WorkCard() {
           </div>
           <div className="truncate text-[13px] text-muted">
             {configured
-              ? `${daysSummary(settings.workDays)} · ${fmtHHmm(settings.workStartTime)}–${fmtHHmm(settings.workEndTime)} · ${locationTitle(work!)}`
+              ? `${daysSummary(settings.workDays)} · ${hoursSummary(settings)} · ${locationTitle(work!)}`
               : 'Add your workdays, hours and work address'}
           </div>
         </div>
@@ -57,7 +63,16 @@ export function WorkSheet({ open, onClose }: { open: boolean; onClose: () => voi
   const work = workLocationOf(settings, locations);
   const workPlaces = locations.filter((l) => l.kind === 'work');
   const toggle = (d: number) =>
-    void saveSettings({ workDays: settings.workDays.includes(d) ? settings.workDays.filter((x) => x !== d) : [...settings.workDays, d].sort() });
+    void saveSettings({
+      workDays: settings.workDays.includes(d) ? settings.workDays.filter((x) => x !== d) : [...settings.workDays, d].sort(),
+      ...(settings.workDays.length === 0 ? { workSince: todayKey() } : {}),
+    });
+  const hoursFor = (d: number) => settings.workHours[String(d)] ?? { start: settings.workStartTime, end: settings.workEndTime };
+  const setDay = (d: number, k: 'start' | 'end', v: string) => void saveSettings({ workHours: { ...settings.workHours, [String(d)]: { ...hoursFor(d), [k]: v } } });
+  const applyAll = () => {
+    const h = hoursFor([...settings.workDays].sort()[0]);
+    void saveSettings({ workStartTime: h.start, workEndTime: h.end, workHours: {} });
+  };
   const newDraft = useMemo<LocationDraft>(() => ({ kind: 'work', name: 'Work' }), []);
   const timeCls = 'w-full bg-transparent py-1 text-[17px] outline-none';
 
@@ -88,14 +103,39 @@ export function WorkSheet({ open, onClose }: { open: boolean; onClose: () => voi
             })}
           </div>
         </div>
-        <div className="grid grid-cols-2 divide-x divide-line">
-          <Field label="Start work">
-            <input type="time" className={timeCls} value={settings.workStartTime} onChange={(e) => e.target.value && void saveSettings({ workStartTime: e.target.value })} />
-          </Field>
-          <Field label="Finish work">
-            <input type="time" className={timeCls} value={settings.workEndTime} onChange={(e) => e.target.value && void saveSettings({ workEndTime: e.target.value })} />
-          </Field>
-        </div>
+      </List>
+
+      <List>
+        <div className="px-4 pt-3 text-[13px] font-medium text-muted">Hours (leave home for work / leave work for home)</div>
+        {settings.workDays.length === 0 ? (
+          <div className="grid grid-cols-2 divide-x divide-line">
+            <Field label="Start work">
+              <input type="time" className={timeCls} value={settings.workStartTime} onChange={(e) => e.target.value && void saveSettings({ workStartTime: e.target.value })} />
+            </Field>
+            <Field label="Finish work">
+              <input type="time" className={timeCls} value={settings.workEndTime} onChange={(e) => e.target.value && void saveSettings({ workEndTime: e.target.value })} />
+            </Field>
+          </div>
+        ) : (
+          [...settings.workDays].sort().map((d) => {
+            const h = hoursFor(d);
+            return (
+              <div key={d} className="flex items-center gap-2 px-4 py-2">
+                <span className="w-11 text-[15px] font-semibold">{DAYS[d]}</span>
+                <input type="time" aria-label={`${DAYS[d]} start`} className="min-w-0 flex-1 rounded-lg bg-fill px-2 py-1.5 text-[16px] outline-none" value={h.start} onChange={(e) => e.target.value && setDay(d, 'start', e.target.value)} />
+                <span className="text-muted">–</span>
+                <input type="time" aria-label={`${DAYS[d]} end`} className="min-w-0 flex-1 rounded-lg bg-fill px-2 py-1.5 text-[16px] outline-none" value={h.end} onChange={(e) => e.target.value && setDay(d, 'end', e.target.value)} />
+              </div>
+            );
+          })
+        )}
+        {settings.workDays.length > 1 && (
+          <div className="px-4 py-3">
+            <Button small variant="secondary" onClick={applyAll}>
+              Use {DAYS[[...settings.workDays].sort()[0]]}’s hours for every day
+            </Button>
+          </div>
+        )}
       </List>
 
       <List>

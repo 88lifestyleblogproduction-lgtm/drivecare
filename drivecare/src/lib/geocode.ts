@@ -40,7 +40,8 @@ async function search(params: Record<string, string>): Promise<GeocodeResult[]> 
   const cached = await cacheGet<GeocodeResult[]>(key, TTL);
   if (cached && cached.length) return cached;
 
-  const qs = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', limit: '5', countrycodes: 'ca', ...params });
+  // viewbox biases results toward Metro Vancouver / Fraser Valley without excluding elsewhere
+  const qs = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', limit: '5', countrycodes: 'ca', viewbox: '-123.6,49.6,-121.7,48.95', bounded: '0', ...params });
   const url = `https://nominatim.openstreetmap.org/search?${qs.toString()}`;
   const res = await throttled('nominatim', 1100, () => fetchWithTimeout(url, { headers: { Accept: 'application/json', 'Accept-Language': 'en' } }));
   if (res.status === 429) throw new Error('Geocoding rate limit reached. Wait a minute and try again, or drop a pin on the map.');

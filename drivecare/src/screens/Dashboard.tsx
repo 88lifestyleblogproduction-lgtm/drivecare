@@ -3,6 +3,7 @@ import { Badge, Banner, Button, Card, Hero, IconButton, List, Page, Row, Section
 import { IconCalendar, IconFuel, IconGear, IconMap, IconRoute, IconTreatment } from '../components/Icons';
 import { useData } from '../lib/data';
 import ThemeToggle from '../components/ThemeToggle';
+import ConfirmTrips from '../components/ConfirmTrips';
 import { useNav } from '../lib/nav';
 import { computeFuelStats } from '../lib/fuel';
 import { buildTreatmentReport, clinicInfo, isActiveAppt } from '../lib/report';
@@ -100,6 +101,8 @@ export default function Dashboard() {
           </button>
         </div>
       </Hero>
+
+      <ConfirmTrips />
 
       <div className="grid grid-cols-2 gap-3">
         <Stat

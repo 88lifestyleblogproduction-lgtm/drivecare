@@ -118,9 +118,15 @@ export interface Trip {
   /** Appointment this trip drives FROM (confirmed link) */
   fromAppointmentId: ID | null;
   rejectedMatches: string[];
-  origin: 'gps' | 'manual' | 'route-plan';
+  origin: 'gps' | 'manual' | 'route-plan' | 'confirmed';
   routePlanId: string | null;
   recording: boolean;
+  /** Planned (route estimate) distance for this leg, kept to measure detours */
+  plannedKm?: number | null;
+  /** Fuel cost snapshot when the trip was confirmed (CAD) */
+  fuelCost?: number | null;
+  plannedFuelCost?: number | null;
+  confirmedAt?: string | null;
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -148,7 +154,19 @@ export interface RoutePlan {
   manualKm: Record<string, number>;
   /** null/undefined = automatic (schedule or detected trip to work); true/false = set by you */
   workday?: boolean | null;
+  /** You removed the first leg (leaving home) / last leg (going home) for this day */
+  skipStart?: boolean;
+  skipEnd?: boolean;
+  /** Your answers to "did you drive this leg?" keyed by leg */
+  legDecisions?: Record<string, LegDecision>;
   updatedAt: string;
+}
+
+export interface LegDecision {
+  status: 'yes' | 'other' | 'skipped';
+  at: string;
+  tripId: string | null;
+  note: string;
 }
 
 export interface CalendarRef {
@@ -184,6 +202,10 @@ export interface AppSettings {
   /** Work hours, "HH:mm" in Vancouver time */
   workStartTime: string;
   workEndTime: string;
+  /** Per-weekday hours ("0" = Sunday … "6" = Saturday); falls back to workStartTime/workEndTime */
+  workHours: Record<string, { start: string; end: string }>;
+  /** First day commute legs are asked about (YYYY-MM-DD) — avoids questions about days before you set up work */
+  workSince: string;
   tabLabelCustom: boolean;
   /** Sync records between devices through your Google Drive (hidden app folder) */
   cloudSyncEnabled: boolean;
